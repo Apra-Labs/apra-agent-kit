@@ -14,3 +14,4 @@ workdir/*
 memory/*.db
 memory/*.db-shm
 memory/*.db-wal
+evals/reports/
