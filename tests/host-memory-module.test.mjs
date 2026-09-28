@@ -7,6 +7,27 @@ import path from 'node:path';
 
 const { createMemoryModule } = await import('../host/memory/index.mjs');
 
+function fakeConversationStore() {
+  const turns = new Map();
+  const calls = [];
+  return {
+    calls,
+    async open() { calls.push('open'); },
+    async close() { calls.push('close'); },
+    async append(turn) { turns.set(turn.id, turn); calls.push('append'); },
+    async get(id) { return turns.get(id) ?? null; },
+    async update(id, patch) {
+      const next = { ...turns.get(id), ...patch };
+      turns.set(id, next);
+      return next;
+    },
+    async listSession(sessionId) {
+      return [...turns.values()].filter(t => t.sessionId === sessionId);
+    },
+    async purgeSessions() { return 0; },
+  };
+}
+
 function fakeStore() {
   const data = new Map();
   const calls = [];
@@ -40,8 +61,7 @@ test('createMemoryModule wires long-term memory, routes, and events', async () =
       decay: { mode: 'none' },
     },
   }, { notifier, fleetApi: {}, logger: console });
-  assert.equal(mod.workingContext, null);
-  assert.equal(mod.createRunWorkingContext(), null);
+  assert.equal(mod.conversationContext, null);
   assert.equal(mod.runState, null);
   assert.equal(mod.learner, null);
   assert.ok(mod.longTerm);
@@ -55,22 +75,16 @@ test('createMemoryModule wires long-term memory, routes, and events', async () =
   }
 });
 
-test('createMemoryModule enables learner and run state only when configured', async () => {
+test('createMemoryModule enables learner, run state, and conversation context only when configured', async () => {
   const store = fakeStore();
+  const ccStore = fakeConversationStore();
   const mod = await createMemoryModule({
-    workingContext: { enabled: true, maxTurns: 4 },
+    conversationContext: { enabled: true, store: () => ccStore, maxRecentTurns: 4 },
     runState: { enabled: true, store: () => store },
     longTerm: { enabled: true, autoLearn: true, store: () => fakeStore(), decay: { mode: 'none' } },
   }, { notifier: null, fleetApi: { executePrompt() {} }, logger: console });
-  assert.ok(mod.workingContext);
-  const runA = mod.createRunWorkingContext();
-  const runB = mod.createRunWorkingContext();
-  assert.ok(runA);
-  assert.notEqual(runA, runB);
-  assert.notEqual(runA, mod.workingContext);
-  runA.append({ type: 'observation', tool: 'only-a' });
-  assert.equal((await runB.forPrompt()).length, 0);
-  assert.equal(mod.workingContext.history().length, 0);
+  assert.ok(mod.conversationContext);
+  assert.equal(mod.conversationContext.mode, 'store');
   assert.ok(mod.runState);
   assert.ok(mod.learner);
   assert.ok(mod.longTerm);
@@ -78,10 +92,23 @@ test('createMemoryModule enables learner and run state only when configured', as
   try {
     await mod.runState.save('task-1', { step: 1 });
     assert.ok(store.calls.includes('store'));
+    assert.ok(ccStore.calls.includes('open'));
   } finally {
     await mod.close();
     assert.ok(store.calls.includes('close'));
+    assert.ok(ccStore.calls.includes('close'));
   }
+});
+
+test('createMemoryModule supports passthrough conversation context mode', async () => {
+  const mod = await createMemoryModule({
+    conversationContext: { enabled: true, mode: 'passthrough', maxRecentTurns: 10 },
+  }, { notifier: null, fleetApi: { executePrompt() {} }, logger: console });
+  assert.ok(mod.conversationContext);
+  assert.equal(mod.conversationContext.mode, 'passthrough');
+  assert.equal(mod.conversationContext.maxRecentTurns, 10);
+  await mod.open();
+  await mod.close();
 });
 
 test('createMemoryModule interpolates env vars in long-term config', async () => {

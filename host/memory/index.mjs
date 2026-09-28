@@ -2,9 +2,12 @@
 import { assertMemoryStore } from './store/interface.mjs';
 import { createFilesystemStore } from './store/filesystem.mjs';
 import { createSqliteStore } from './store/sqlite.mjs';
-import { createWorkingContext } from './working-context.mjs';
+import { assertConversationStore } from './conversation-store/interface.mjs';
+import { createConversationSqliteStore } from './conversation-store/sqlite.mjs';
+import { createConversationContext } from './conversation-context.mjs';
 import { createRunState } from './run-state.mjs';
 import { createLongTermMemory } from './long-term.mjs';
+import { createFsrs6Engine } from './decay/fsrs6.mjs';
 import { createLearner } from './learner.mjs';
 import { createMemoryEvents } from './events.mjs';
 import { buildMemoryRoutes } from './routes.mjs';
@@ -22,6 +25,20 @@ async function resolveStore(config) {
       return createCosmosStore(config.cosmos ?? {});
     }
     default: return createFilesystemStore({ dir: config.dir ?? './memory' });
+  }
+}
+
+async function resolveConversationStore(config) {
+  if (typeof config.store === 'function') {
+    return assertConversationStore(config.store(config));
+  }
+  switch (config.store) {
+    case 'sqlite': return createConversationSqliteStore({ dbPath: config.dbPath ?? './memory/conversation.db' });
+    case 'cosmos': {
+      const { createConversationCosmosStore } = await import('./conversation-store/cosmos.mjs');
+      return createConversationCosmosStore(config.cosmos ?? {});
+    }
+    default: return createConversationSqliteStore({ dbPath: config.dbPath ?? './memory/conversation.db' });
   }
 }
 
@@ -45,14 +62,15 @@ export async function createMemoryModule(memoryConfig, { notifier, fleetApi, log
     level: memoryConfig?.events?.level ?? 'notifications',
   });
 
-  const wcOptions = memoryConfig?.workingContext?.enabled
-    ? { fleetApi, ...memoryConfig.workingContext, logger }
-    : null;
-  const wc = wcOptions ? createWorkingContext(wcOptions) : null;
-
   const ltConfig = memoryConfig?.longTerm
     ? interpolateConfigStrings(memoryConfig.longTerm, process.env)
     : null;
+
+  // Shared FSRS-6 engine so long-term memory and conversation context decay
+  // turns/entries using the same thresholds and math.
+  const engine = createFsrs6Engine({
+    thresholds: ltConfig?.decay?.thresholds,
+  });
 
   let rsStore = null;
   const rs = memoryConfig?.runState?.enabled
@@ -75,6 +93,7 @@ export async function createMemoryModule(memoryConfig, { notifier, fleetApi, log
           recallFailurePolicy: ltConfig.recallFailurePolicy,
           events,
           logger,
+          engine,
         });
       })()
     : null;
@@ -85,16 +104,43 @@ export async function createMemoryModule(memoryConfig, { notifier, fleetApi, log
 
   const routes = ltm ? buildMemoryRoutes(ltm) : null;
 
+  const ccConfig = memoryConfig?.conversationContext
+    ? interpolateConfigStrings(memoryConfig.conversationContext, process.env)
+    : null;
+  let cc = null;
+  if (ccConfig?.enabled) {
+    const ccMode = ccConfig.mode ?? 'store';
+    if (ccMode === 'store') {
+      const ccStore = await resolveConversationStore(ccConfig);
+      cc = createConversationContext({
+        store: ccStore,
+        engine,
+        fleetApi,
+        maxRecentTurns: ccConfig.maxRecentTurns ?? 6,
+        maxTotalTurns: ccConfig.maxTotalTurns ?? 20,
+        compactionStrategy: ccConfig.compactionStrategy ?? 'summarise',
+        answerMaxChars: ccConfig.answerMaxChars ?? 500,
+        events,
+        logger,
+      });
+    } else {
+      // Passthrough mode — no store, no decay, just expose mode + config
+      cc = {
+        mode: 'passthrough',
+        maxRecentTurns: ccConfig.maxRecentTurns ?? 10,
+        async open() {},
+        async close() {},
+      };
+    }
+  }
+
   return {
-    workingContext: wc,
-    createRunWorkingContext() {
-      return wcOptions ? createWorkingContext(wcOptions) : null;
-    },
     runState: rs,
     longTerm: ltm,
     learner,
     events,
     routes,
+    conversationContext: cc,
 
     async open() {
       if (rsStore) await rsStore.open();
@@ -108,6 +154,7 @@ export async function createMemoryModule(memoryConfig, { notifier, fleetApi, log
           }
         }
       }
+      if (cc) await cc.open();
     },
 
     async close() {
@@ -123,6 +170,13 @@ export async function createMemoryModule(memoryConfig, { notifier, fleetApi, log
           await rsStore.close();
         } catch (err) {
           logger.warn?.(`[memory] failed to close run-state store: ${err?.message ?? err}`);
+        }
+      }
+      if (cc) {
+        try {
+          await cc.close();
+        } catch (err) {
+          logger.warn?.(`[memory] failed to close conversation context: ${err?.message ?? err}`);
         }
       }
     },

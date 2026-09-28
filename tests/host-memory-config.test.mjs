@@ -39,12 +39,10 @@ test('memory enabled does not warn not implemented', async () => {
 test('memory submodules without runLoop warn about missing run history', async () => {
   const dir = await tmpDir();
   await writeConfig(dir, `export default { ${base}, modules: { memory: {
-    workingContext: { enabled: true },
     runState: { enabled: true },
     longTerm: { enabled: false, autoLearn: true },
   } } };`);
   const { warnings } = await loadWithWarnings(dir);
-  assert.ok(warnings.some(w => w.includes('memory.workingContext enabled but runLoop disabled')));
   assert.ok(warnings.some(w => w.includes('memory.runState enabled but runLoop disabled')));
   assert.ok(warnings.some(w => w.includes('memory.longTerm.autoLearn enabled but runLoop disabled')));
   assert.ok(warnings.some(w => w.includes('memory.longTerm.autoLearn enabled but longTerm disabled')));
@@ -57,15 +55,36 @@ test('memory submodules with runLoop and longTerm enabled do not warn', async ()
     runLoop: { enabled: true },
     memory: {
       enabled: true,
-      workingContext: { enabled: true },
       runState: { enabled: true },
       longTerm: { enabled: true, autoLearn: true },
     },
   } };`);
   const { warnings } = await loadWithWarnings(dir);
-  assert.ok(!warnings.some(w => w.includes('memory.workingContext enabled but runLoop disabled')));
   assert.ok(!warnings.some(w => w.includes('memory.runState enabled but runLoop disabled')));
   assert.ok(!warnings.some(w => w.includes('memory.longTerm.autoLearn enabled but runLoop disabled')));
   assert.ok(!warnings.some(w => w.includes('memory.longTerm.autoLearn enabled but longTerm disabled')));
   assert.ok(!warnings.some(w => /memory/i.test(w) && /not implemented/i.test(w)));
+});
+
+test('memory.conversationContext enabled without chat warns about missing conversation tracking', async () => {
+  const dir = await tmpDir();
+  await writeConfig(dir, `export default { ${base}, modules: {
+    runLoop: { enabled: true },
+    memory: { conversationContext: { enabled: true } },
+  } };`);
+  const { warnings } = await loadWithWarnings(dir);
+  assert.ok(warnings.some(w => w.includes('memory.conversationContext enabled but chat disabled')));
+});
+
+test('memory.conversationContext enabled with chat enabled does not warn', async () => {
+  const dir = await tmpDir();
+  await writeConfig(dir, `export default { ${base}, modules: {
+    runLoop: { enabled: true },
+    dispatch: { enabled: true },
+    notify: { sse: { enabled: true } },
+    chat: { enabled: true },
+    memory: { conversationContext: { enabled: true } },
+  } };`);
+  const { warnings } = await loadWithWarnings(dir);
+  assert.ok(!warnings.some(w => w.includes('memory.conversationContext enabled but chat disabled')));
 });

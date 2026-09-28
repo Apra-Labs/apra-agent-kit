@@ -128,8 +128,8 @@ function validate(raw, env) {
 
   const mem = raw.modules?.memory;
   if (mem) {
-    if (mem.workingContext?.enabled && !runLoopEnabled) {
-      console.warn('[host/config] memory.workingContext enabled but runLoop disabled — no turn history to compact');
+    if (mem.conversationContext?.enabled && !modules.chat?.enabled) {
+      console.warn('[host/config] memory.conversationContext enabled but chat disabled — no conversation to track');
     }
     if (mem.runState?.enabled && !runLoopEnabled) {
       console.warn('[host/config] memory.runState enabled but runLoop disabled — no step sequence to checkpoint');

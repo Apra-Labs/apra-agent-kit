@@ -95,59 +95,24 @@ test('system prompt omits memory section when no memories', () => {
   assert.ok(prompt.includes('One tool call per turn'));
 });
 
-test('open-ended strategy feeds working context into the next prompt', async () => {
-  const appended = [];
+test('open-ended strategy feeds local observation history into the next prompt', async () => {
   const api = doneFleet();
   const strategy = createOpenEndedStrategy({
     task: { id: 't-1', goal: 'Weather in London' },
     tools: makeTools(),
     fleetApi: api,
-    memory: {
-      workingContext: {
-        append(observation) { appended.push(observation); },
-        async forPrompt() {
-          return appended.map(obs => ({ ...obs, via: 'working-context' }));
-        },
-      },
-    },
+    memory: { conversationContext: null },
     memories: [{ kind: 'rule', text: 'Never delete without backup' }],
   });
   const events = [];
   for await (const event of strategy.iterate()) events.push(event);
   assert.ok(events.some(e => e.type === 'done'));
-  assert.equal(appended.length, 1);
-  assert.equal(appended[0].tool, 'weather');
+  assert.equal(strategy.history().length, 1);
+  assert.equal(strategy.history()[0].tool, 'weather');
   const second = api.promptCalls[1].prompt;
-  assert.ok(second.includes('working-context'));
+  assert.ok(second.includes('weather'));
   assert.ok(api.promptCalls[0].prompt.includes('## Your Memory'));
   assert.ok(api.promptCalls[0].prompt.includes('Never delete without backup'));
-});
-
-test('open-ended strategy continues when working context fails', async () => {
-  const warnings = [];
-  const orig = console.warn;
-  console.warn = (msg) => warnings.push(String(msg));
-  try {
-    const api = doneFleet();
-    const strategy = createOpenEndedStrategy({
-      task: { id: 't-1', goal: 'Weather in London' },
-      tools: makeTools(),
-      fleetApi: api,
-      memory: {
-        workingContext: {
-          append() { throw new Error('append boom'); },
-          async forPrompt() { throw new Error('prompt boom'); },
-        },
-      },
-    });
-    const events = [];
-    for await (const event of strategy.iterate()) events.push(event);
-    assert.ok(events.some(e => e.type === 'done'));
-    assert.ok(warnings.some(w => /prompt boom/.test(w)));
-    assert.ok(api.promptCalls[1].prompt.includes('weather'));
-  } finally {
-    console.warn = orig;
-  }
 });
 
 test('plan-execute checkpoints after each step and skips idempotent steps on resume', async () => {
@@ -175,7 +140,7 @@ test('plan-execute checkpoints after each step and skips idempotent steps on res
     task: { id: 'task-9', goal: 'Weather in London' },
     tools,
     fleetApi: createMockFleetApi({ members: rosterNames(1), promptResponses: [plan, review, done] }),
-    memory: { runState, workingContext: { append() {}, async forPrompt() { return []; } } },
+    memory: { runState, conversationContext: null },
   });
   for await (const _event of first.iterate()) { /* drain */ }
   assert.equal(calls, 1);
@@ -277,7 +242,6 @@ test('plan-execute continues when run state save throws', async () => {
 
 test('runTask passes memory and memories through to the strategy', async () => {
   const api = doneFleet();
-  const appended = [];
   const result = await runTask(
     { id: 't-1', goal: 'Weather in London' },
     {
@@ -285,34 +249,16 @@ test('runTask passes memory and memories through to the strategy', async () => {
       tools: makeTools(),
       fleetApi: api,
       memories: [{ kind: 'domain', text: 'DB on port 5432' }],
-      memory: {
-        createRunWorkingContext() {
-          return {
-            append(obs) { appended.push(obs); },
-            async forPrompt() { return appended; },
-          };
-        },
-      },
+      memory: {},
     },
   );
   assert.equal(result.status, 'completed');
-  assert.equal(appended.length, 1);
+  assert.equal(result.history.filter(h => h.type === 'observation').length, 1);
   assert.ok(api.promptCalls[0].prompt.includes('DB on port 5432'));
   assert.ok(api.promptCalls[0].prompt.includes('## Your Memory'));
 });
 
-test('sequential runs do not leak working-context observations', async () => {
-  const mod = await createMemoryModule({
-    workingContext: { enabled: true, maxTurns: 20 },
-  }, { fleetApi: {}, logger: console });
-  const contexts = [];
-  const create = mod.createRunWorkingContext.bind(mod);
-  mod.createRunWorkingContext = () => {
-    const ctx = create();
-    contexts.push(ctx);
-    return ctx;
-  };
-
+test('sequential runs do not leak observations between tasks', async () => {
   const run = (city) => runTask(
     { id: `t-${city}`, goal: `Weather in ${city}` },
     {
@@ -325,7 +271,6 @@ test('sequential runs do not leak working-context observations', async () => {
           '```done\n{"result": "ok", "summary": "ok"}\n```',
         ],
       }),
-      memory: mod,
     },
   );
 
@@ -333,22 +278,16 @@ test('sequential runs do not leak working-context observations', async () => {
   const second = await run('Paris');
   assert.equal(first.status, 'completed');
   assert.equal(second.status, 'completed');
-  assert.equal(contexts.length, 2);
 
-  const promptB = await contexts[1].forPrompt();
-  assert.equal(promptB.length, 1);
-  assert.equal(promptB[0].args.city, 'Paris');
-  assert.ok(!promptB.some(obs => obs.args?.city === 'London'));
-  assert.equal((await contexts[0].forPrompt())[0].args.city, 'London');
-  assert.equal(mod.workingContext.history().length, 0);
+  const secondObservations = second.history.filter(h => h.type === 'observation');
+  assert.equal(secondObservations.length, 1);
+  assert.equal(secondObservations[0].args.city, 'Paris');
+  assert.ok(!secondObservations.some(obs => obs.args?.city === 'London'));
 });
 
 test('plan-execute resume replays checkpoint observations into that run only', async () => {
-  const mod = await createMemoryModule({
-    workingContext: { enabled: true, maxTurns: 20 },
-  }, { fleetApi: {}, logger: console });
   const prior = { type: 'observation', tool: 'archive', args: { id: 'prior-only' }, result: { ok: true } };
-  mod.runState = {
+  const runState = {
     async load() {
       return {
         stepIndex: 1,
@@ -362,25 +301,16 @@ test('plan-execute resume replays checkpoint observations into that run only', a
     async save() {},
     async addIdempotencyKey() {},
   };
-  const contexts = [];
-  const create = mod.createRunWorkingContext.bind(mod);
-  mod.createRunWorkingContext = () => {
-    const ctx = create();
-    contexts.push(ctx);
-    return ctx;
-  };
   const api = createMockFleetApi({
     members: rosterNames(1),
     promptResponses: ['```done\n{"result": "ok", "summary": "ok"}\n```'],
   });
   const result = await runTask(
     { id: 'resume-1', goal: 'Weather' },
-    { strategy: 'plan-execute', tools: makeTools(), fleetApi: api, memory: mod },
+    { strategy: 'plan-execute', tools: makeTools(), fleetApi: api, memory: { runState } },
   );
   assert.equal(result.status, 'completed');
-  const replayed = await contexts[0].forPrompt();
-  assert.ok(replayed.some(obs => obs.tool === 'archive' && obs.args?.id === 'prior-only'));
-  assert.equal(mod.workingContext.history().length, 0);
+  assert.ok(result.history.some(obs => obs.tool === 'archive' && obs.args?.id === 'prior-only'));
 });
 
 test('executeHostedTask recalls before the run and learns after', async () => {
@@ -418,10 +348,7 @@ test('executeHostedTask recalls before the run and learns after', async () => {
         runState: {
           async clear(id) { seen.cleared = id; },
         },
-        workingContext: {
-          append() {},
-          async forPrompt() { return []; },
-        },
+        conversationContext: null,
       },
     });
     assert.equal(out.status, 'completed');

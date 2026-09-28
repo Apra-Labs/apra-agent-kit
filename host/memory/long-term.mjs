@@ -14,8 +14,9 @@ export function createLongTermMemory({
   autoLearn = false,
   events = null,
   logger = console,
+  engine = null,
 } = {}) {
-  const engine = createFsrs6Engine({
+  engine = engine ?? createFsrs6Engine({
     thresholds: decayConfig.thresholds,
   });
 

@@ -43,22 +43,10 @@ export function createPlanExecuteStrategy({
 
   function remember(observation) {
     observations.push(observation);
-    if (!memory?.workingContext) return;
-    try {
-      memory.workingContext.append(observation);
-    } catch (err) {
-      console.warn(`[host] working context append failed — continuing: ${err?.message ?? err}`);
-    }
   }
 
-  async function historyForPrompt() {
-    if (!memory?.workingContext) return observations;
-    try {
-      return await memory.workingContext.forPrompt();
-    } catch (err) {
-      console.warn(`[host] working context failed — continuing with local history: ${err?.message ?? err}`);
-      return observations;
-    }
+  function historyForPrompt() {
+    return observations;
   }
 
   function shouldReview(step) {
@@ -160,7 +148,7 @@ export function createPlanExecuteStrategy({
         }
 
         const replanPrompt = buildReplanPrompt({
-          task, plan: workingPlan, history: await historyForPrompt(),
+          task, plan: workingPlan, history: historyForPrompt(),
           failedStep: null, reviewerFeedback: feedback, systemPrompt,
         });
         let replanResult = null;
@@ -189,7 +177,7 @@ export function createPlanExecuteStrategy({
       }
 
       const replanPrompt = buildReplanPrompt({
-        task, plan: currentPlan, history: await historyForPrompt(),
+        task, plan: currentPlan, history: historyForPrompt(),
         failedStep, reviewerFeedback: feedback, systemPrompt,
       });
       let revisedPlan = null;
@@ -251,7 +239,7 @@ export function createPlanExecuteStrategy({
           let args = step.args;
 
           if (needsArgsResolution(step)) {
-            const resolvePrompt = buildResolveArgsPrompt({ task, step, history: await historyForPrompt(), systemPrompt });
+            const resolvePrompt = buildResolveArgsPrompt({ task, step, history: historyForPrompt(), systemPrompt });
             const resolveText = await callPrompt('doer', resolvePrompt);
             yield { type: 'prompt_usage', text: resolveText };
             const resolved = parseResponse(resolveText);
@@ -290,7 +278,7 @@ export function createPlanExecuteStrategy({
 
           if (shouldReview(step)) {
             for (let retryRound = 0; retryRound <= maxStepReviewAttempts; retryRound++) {
-              const srPrompt = buildStepReviewPrompt({ task, step, result, history: await historyForPrompt(), systemPrompt });
+              const srPrompt = buildStepReviewPrompt({ task, step, result, history: historyForPrompt(), systemPrompt });
               const srText = await callPrompt('reviewer', srPrompt);
               yield { type: 'prompt_usage', text: srText };
               const srParsed = parseResponse(srText);
@@ -312,7 +300,7 @@ export function createPlanExecuteStrategy({
               const retryPrompt = buildResolveArgsPrompt({
                 task,
                 step: { ...step, reason: `Retry: ${feedback}` },
-                history: await historyForPrompt(),
+                history: historyForPrompt(),
                 systemPrompt,
               });
               const retryText = await callPrompt('doer', retryPrompt);
@@ -330,7 +318,7 @@ export function createPlanExecuteStrategy({
           }
         } else if (step.type === 'reason') {
           yield { type: 'step_started', stepIndex: i, step: { type: 'reason' } };
-          const reasonPrompt = buildReasonPrompt({ task, step, history: await historyForPrompt(), systemPrompt });
+          const reasonPrompt = buildReasonPrompt({ task, step, history: historyForPrompt(), systemPrompt });
           let reasonText = await callPrompt('doer', reasonPrompt);
           yield { type: 'prompt_usage', text: reasonText };
           remember({ type: 'observation', stepType: 'reason', text: reasonText });
@@ -339,7 +327,7 @@ export function createPlanExecuteStrategy({
           if (shouldReview(step)) {
             for (let retryRound = 0; retryRound <= maxStepReviewAttempts; retryRound++) {
               const srPrompt = buildStepReviewPrompt({
-                task, step, result: { text: reasonText }, history: await historyForPrompt(), systemPrompt,
+                task, step, result: { text: reasonText }, history: historyForPrompt(), systemPrompt,
               });
               const srText = await callPrompt('reviewer', srPrompt);
               yield { type: 'prompt_usage', text: srText };
@@ -362,7 +350,7 @@ export function createPlanExecuteStrategy({
               const retryPrompt = buildReasonPrompt({
                 task,
                 step: { ...step, prompt: `Retry: ${feedback}. ${step.prompt}` },
-                history: await historyForPrompt(),
+                history: historyForPrompt(),
                 systemPrompt,
               });
               reasonText = await callPrompt('doer', retryPrompt);

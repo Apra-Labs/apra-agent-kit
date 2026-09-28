@@ -29,22 +29,10 @@ export function createOpenEndedStrategy({
 
   function remember(observation) {
     observations.push(observation);
-    if (!memory?.workingContext) return;
-    try {
-      memory.workingContext.append(observation);
-    } catch (err) {
-      console.warn(`[host] working context append failed — continuing: ${err?.message ?? err}`);
-    }
   }
 
-  async function historyForPrompt() {
-    if (!memory?.workingContext) return observations;
-    try {
-      return await memory.workingContext.forPrompt();
-    } catch (err) {
-      console.warn(`[host] working context failed — continuing with local history: ${err?.message ?? err}`);
-      return observations;
-    }
+  function historyForPrompt() {
+    return observations;
   }
 
   async function executeTool(name, args) {
@@ -61,7 +49,7 @@ export function createOpenEndedStrategy({
 
   async function* iterate() {
     while (true) {
-      const history = await historyForPrompt();
+      const history = historyForPrompt();
       const prompt = buildActPrompt({ task, history, tools: toolCatalog, systemPrompt });
       const raw = await fleetApi.executePrompt({ member_name: 'doer', prompt });
       const text = extractText(raw);
