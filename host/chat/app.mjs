@@ -441,21 +441,24 @@
   }
 
   function renderMemoryRecall(recall) {
-    if (!recall || !recall.facts || recall.facts.length === 0) return null;
+    if (!recall) return null;
+    var hasFacts = recall.facts && recall.facts.length > 0;
     var panel = h('div', 'mem-panel mem-recall');
     var hdr = h('div', 'mem-hdr');
     var icon = h('span', 'mem-icon', '⟵');
     hdr.append(icon);
-    hdr.append(h('span', 'mem-label', 'RECALLED ' + recall.count + ' MEMORIES'));
-    var toggle = h('span', 'mem-toggle', current.memRecallOpen ? 'HIDE' : 'SHOW');
-    toggle.addEventListener('click', function(e) {
-      e.stopPropagation();
-      current.memRecallOpen = !current.memRecallOpen;
-      renderCard(current.card, current.turn);
-    });
-    hdr.append(toggle);
+    hdr.append(h('span', 'mem-label', recall.count > 0 ? 'RECALLED ' + recall.count + ' MEMORIES' : 'RECALLED · NOTHING MATCHED'));
+    if (hasFacts) {
+      var toggle = h('span', 'mem-toggle', current.memRecallOpen ? 'HIDE' : 'SHOW');
+      toggle.addEventListener('click', function(e) {
+        e.stopPropagation();
+        current.memRecallOpen = !current.memRecallOpen;
+        renderCard(current.card, current.turn);
+      });
+      hdr.append(toggle);
+    }
     panel.append(hdr);
-    if (current.memRecallOpen) {
+    if (current.memRecallOpen && hasFacts) {
       var list = h('div', 'mem-list');
       for (var i = 0; i < recall.facts.length; i++) {
         list.append(renderMemoryFact(recall.facts[i], { strength: recall.facts[i].retrievalStrength }));
@@ -469,22 +472,27 @@
     if (!learn) return null;
     var hasNew = learn.newFacts && learn.newFacts.length > 0;
     var hasPromoted = learn.promotedIds && learn.promotedIds.length > 0;
-    if (!hasNew && !hasPromoted) return null;
     var panel = h('div', 'mem-panel mem-learn');
     var hdr = h('div', 'mem-hdr');
     var icon = h('span', 'mem-icon', '⟶');
     hdr.append(icon);
-    var parts = [];
-    if (hasNew) parts.push(learn.newFacts.length + ' NEW');
-    if (hasPromoted) parts.push(learn.promotedIds.length + ' REINFORCED');
-    hdr.append(h('span', 'mem-label', 'LEARNED · ' + parts.join(' · ')));
-    var toggle = h('span', 'mem-toggle', current.memLearnOpen ? 'HIDE' : 'SHOW');
-    toggle.addEventListener('click', function(e) {
-      e.stopPropagation();
-      current.memLearnOpen = !current.memLearnOpen;
-      renderCard(current.card, current.turn);
-    });
-    hdr.append(toggle);
+    if (hasNew || hasPromoted) {
+      var parts = [];
+      if (hasNew) parts.push(learn.newFacts.length + ' NEW');
+      if (hasPromoted) parts.push(learn.promotedIds.length + ' REINFORCED');
+      hdr.append(h('span', 'mem-label', 'LEARNED · ' + parts.join(' · ')));
+    } else {
+      hdr.append(h('span', 'mem-label', 'LEARNED · NOTHING NEW'));
+    }
+    if (hasNew) {
+      var toggle = h('span', 'mem-toggle', current.memLearnOpen ? 'HIDE' : 'SHOW');
+      toggle.addEventListener('click', function(e) {
+        e.stopPropagation();
+        current.memLearnOpen = !current.memLearnOpen;
+        renderCard(current.card, current.turn);
+      });
+      hdr.append(toggle);
+    }
     panel.append(hdr);
     if (current.memLearnOpen && hasNew) {
       var list = h('div', 'mem-list');

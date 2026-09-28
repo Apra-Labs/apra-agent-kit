@@ -247,7 +247,7 @@ export async function executeHostedTask(task, {
         const recalled = await memory.longTerm.recall({ tags, taskId: fullTask.id });
         memories = Array.isArray(recalled) ? recalled : [];
         logger.info?.(`memory recalled ${memories.length} facts`);
-        if (onProgress && memories.length > 0) {
+        if (onProgress) {
           try {
             await onProgress({
               kind: 'memory_recall',
@@ -262,9 +262,10 @@ export async function executeHostedTask(task, {
       }
     }
 
+    const pooledApi = createPooledFleetApi(api, lease);
     const result = await runTask(fullTask, {
       tools: toolRegistry,
-      fleetApi: createPooledFleetApi(api, lease),
+      fleetApi: pooledApi,
       budgets: budgetsMod,
       guardrails: guardrailsMod,
       ...runLoopConfig,
@@ -283,8 +284,9 @@ export async function executeHostedTask(task, {
           task: fullTask,
           history: result.observations ?? result.history ?? [],
           recalledFacts: memories,
+          fleetApi: pooledApi,
         });
-        if (onProgress && (learned.newFacts?.length || learned.promotedIds?.length)) {
+        if (onProgress) {
           try {
             await onProgress({
               kind: 'memory_learn',

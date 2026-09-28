@@ -25,7 +25,14 @@ Observation history:
 function buildPrompt(task, history, recalledFacts) {
   const taskText = typeof task === 'string' ? task : (task?.goal ?? JSON.stringify(task));
   const recalledText = (recalledFacts ?? []).map(f => `[${f.id}] (${f.kind}) ${f.text}`).join('\n') || '(none)';
-  const historyText = (history ?? []).map((e, i) => `[${i + 1}] ${e.type ?? 'step'}: ${e.text ?? e.result ?? JSON.stringify(e).slice(0, 300)}`).join('\n');
+  const historyText = (history ?? []).map((e, i) => {
+    let content = e.text;
+    if (content == null) {
+      content = typeof e.result === 'string' ? e.result : JSON.stringify(e.result ?? e);
+    }
+    if (content.length > 500) content = content.slice(0, 500) + '…';
+    return `[${i + 1}] ${e.type ?? 'step'}: ${content}`;
+  }).join('\n');
   return LEARNER_PROMPT
     .replace('{{TASK}}', taskText)
     .replace('{{RECALLED}}', recalledText)
@@ -44,12 +51,22 @@ function parseExtraction(text) {
   }
 }
 
-export function createLearner({ longTermMemory, fleetApi, events = null, logger = console, maxRetries = 2, retryDelayMs = 3000 } = {}) {
-  async function callWithRetry(prompt) {
+function extractText(response) {
+  if (typeof response === 'string') return response;
+  if (response?.isError) {
+    const msg = (response.content ?? []).map(p => p.text ?? '').join('\n') || 'unknown error';
+    throw new Error(`execute_prompt returned error: ${msg}`);
+  }
+  return (response?.content ?? []).map(p => p.text ?? '').join('\n');
+}
+
+export function createLearner({ longTermMemory, fleetApi: defaultFleetApi, events = null, logger = console, maxRetries = 2, retryDelayMs = 3000 } = {}) {
+  async function callWithRetry(prompt, api) {
     let lastErr;
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
-        return await fleetApi.executePrompt({ member_name: 'doer', prompt });
+        const response = await api.executePrompt({ member_name: 'doer', prompt });
+        return extractText(response);
       } catch (err) {
         lastErr = err;
         logger.warn?.(`[memory/learner] executePrompt attempt ${attempt + 1} failed: ${err?.message ?? err}`);
@@ -60,11 +77,11 @@ export function createLearner({ longTermMemory, fleetApi, events = null, logger 
   }
 
   return {
-    async extract({ task, history, recalledFacts }) {
+    async extract({ task, history, recalledFacts, fleetApi }) {
+      const api = fleetApi ?? defaultFleetApi;
       try {
         const prompt = buildPrompt(task, history, recalledFacts);
-        const response = await callWithRetry(prompt);
-        const text = typeof response === 'string' ? response : (response?.content ?? []).map(p => p.text ?? '').join('\n');
+        const text = await callWithRetry(prompt, api);
         const { newFacts, usedRecalledIds } = parseExtraction(text);
 
         const stored = [];
