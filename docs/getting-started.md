@@ -18,6 +18,7 @@ The kit gives you an agent that can:
 - Execute them autonomously with review gates
 - Stream progress to a real-time chat UI
 - Respect cost, token, and time budgets
+- Remember prior chat turns and learn facts across sessions (optional memory)
 
 You supply: **the tools** and **the config**. The kit handles planning, execution,
 review, error recovery, concurrency, and deployment.
@@ -58,6 +59,9 @@ The guided path handles things that are easy to forget when building manually:
   parent shell; the plan shows how to pass keys through
 - **Session cleanup** — clears stale Fleet worker sessions before integration
   testing so the agent starts fresh
+- **Memory configuration** — if the agent needs memory, sets up the right
+  tiers (conversation context, long-term, run state) and coaches the LLM
+  to use memory tools via `agentDescription`
 
 After the build completes, your agent is ready to run — skip to
 [Step 3: Run your agent](#step-3-run-your-agent).
@@ -180,6 +184,60 @@ say so explicitly rather than guessing.`,
 | `plan-execute` | Most agents. The LLM creates a plan, a reviewer approves it, then steps execute one at a time. Replans on failure. Safer, auditable. |
 | `open-ended` | Simple lookup agents. Act → observe → repeat with no upfront plan. Faster for single-tool tasks, less control. |
 
+### Memory (optional)
+
+The kit has a three-tier memory system. All tiers are off by default — enable
+what you need in `modules.memory`.
+
+**Conversation context** — the agent remembers what was discussed earlier in
+the chat session. Enable it when your agent handles multi-turn conversations
+where users reference prior results ("book the cheapest one").
+
+```js
+memory: {
+  conversationContext: {
+    enabled: true,
+    mode: 'store',         // server persists turns; client sends sessionId
+    store: 'sqlite',
+    dbPath: './memory/conversation.db',
+  },
+}
+```
+
+**Long-term memory** — the agent learns facts across sessions. When enabled,
+the agent gains four tools: `remember`, `recall`, `forget`, `promote`. Coach
+the agent to use them via `agentDescription`:
+
+```js
+memory: {
+  longTerm: {
+    enabled: true,
+    store: 'sqlite',
+    dbPath: './memory/memory.db',
+    autoLearn: true,       // extract facts after each task
+  },
+}
+```
+
+```
+// In agentDescription:
+ALWAYS use the recall tool before planning to check for relevant
+prior knowledge. Use remember to store useful facts you discover.
+```
+
+**Run state** — crash recovery. If a task is interrupted mid-execution,
+it resumes from the last checkpoint on restart.
+
+```js
+memory: {
+  runState: {
+    enabled: true,
+    store: 'sqlite',
+    dbPath: './memory/run-state.db',
+  },
+}
+```
+
 ### Config reference
 
 | Field | What it does |
@@ -193,6 +251,9 @@ say so explicitly rather than guessing.`,
 | `dispatch.concurrency` | Max parallel tasks |
 | `budgets.*` | Cost and safety limits per task |
 | `chat.themes` | `['blue']`, `['apra']`, or `['blue', 'apra']` for a toggle |
+| `memory.conversationContext` | Carries chat turns across tasks within a session. Mode: `store` (server persists) or `passthrough` (caller sends) |
+| `memory.runState` | Crash recovery — resumes interrupted tasks from the last checkpoint |
+| `memory.longTerm` | Cross-session fact storage with FSRS-6 decay. Adds `remember`/`recall`/`forget`/`promote` tools |
 
 ---
 
