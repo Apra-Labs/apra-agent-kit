@@ -380,7 +380,7 @@ modules: {
       dedup: { enabled: true },          // reject duplicate facts
       recallLimit: 20,                   // max facts returned per recall
       maxEntries: 500,                   // cap before purge
-      preloadDir: './knowledge',         // optional — seed .md files loaded on startup
+      preloadDir: './knowledge',         // optional — seed .json files loaded on startup
     },
   },
 }
@@ -398,7 +398,7 @@ modules: {
 | Store | When to use |
 |---|---|
 | `sqlite` | Local dev, single-instance deployments. Uses `node:sqlite` `DatabaseSync`. |
-| `cosmos` | Azure deployments. Lazy-loaded `@azure/cosmos`. Partition key: `id` (long-term) or `sessionId` (conversation). |
+| `cosmos` | Azure deployments. Lazy-loaded `@azure/cosmos`. Partition key: `kind` (long-term) or `sessionId` (conversation). |
 | `filesystem` | Simplest option. JSON files in a directory. Long-term memory only. |
 | function | Custom adapter. Receives config, must return an object implementing the store contract. |
 
@@ -444,15 +444,15 @@ tool to store it as a 'preference' fact so you apply it in future conversations.
 
 ### Memory preloader
 
-If `longTerm.preloadDir` is configured, the host loads `.md` files from that
-directory on startup. Each file becomes a long-term memory entry with kind
-`domain`. Duplicates are skipped.
+If `longTerm.preloadDir` is configured, the host loads `.json` files from that
+directory on startup. Each JSON file contains one memory entry object (or an
+array of them) with their own `kind` field. Duplicates are skipped.
 
 ```
 knowledge/
-├── city-guides.md       → stored as domain fact
-├── visa-requirements.md → stored as domain fact
-└── booking-rules.md     → stored as domain fact
+├── city-guides.json       → memory entries with their own kind fields
+├── visa-requirements.json → memory entries with their own kind fields
+└── booking-rules.json     → memory entries with their own kind fields
 ```
 
 ## Conversation Store
