@@ -85,7 +85,7 @@ Validate: non-empty, max 214 chars, no leading `.` or `_`, matches
 Then scaffold:
 
 ```bash
-npm create @dsiddharth2/fleet-agent <agent-name>
+npm create @apralabs/fleet-agent <agent-name>
 ```
 
 Change working directory into `./<agent-name>/`.
@@ -142,7 +142,7 @@ still ask the purpose only. Store the name for Phases 2–4 file paths
 > Python scripts, other services.
 > This determines which Python tools to generate.
 
-**Round 4: Workflow + Members** (two questions in one AskUserQuestion call)
+**Round 4: Workflow + Members + Memory** (three questions in one AskUserQuestion call)
 > Q1: "How does the agent's work flow?"
 > Multiple choice: linear pipeline (A→B→C), loop-until-done (keep trying until
 > success), fan-out-then-merge (parallel work then combine), human-in-the-loop
@@ -154,6 +154,19 @@ still ask the purpose only. Store the name for Phases 2–4 file paths
 > (one builds, one checks), custom roles (describe your own).
 > Explain: "A Fleet member is a Claude Code session running on a machine. Each
 > member can run commands and answer prompts. Think of them as workers on a team."
+>
+> Q3: "Does this agent need memory across conversations?"
+> Multiple choice:
+> - **No memory** — "Each task is independent. No state persists between
+>   conversations or even between messages in the same chat."
+> - **Conversation context only** — "Remember what was discussed in this
+>   chat session so the user can say things like 'book the cheapest one'
+>   after a search."
+> - **Long-term memory** — "Learn and remember facts across sessions —
+>   user preferences, domain knowledge, patterns. The agent gets
+>   remember/recall/forget/promote tools."
+> - **Both** — "Conversation context within a session + long-term memory
+>   across sessions."
 
 ### Stage B — Socratic Grilling
 
@@ -173,6 +186,9 @@ Read the wizard answers and probe the areas that matter most for this agent type
 | Human-in-the-loop (Q5) | What if the human doesn't respond? Timeout? Default action? |
 | File system access (Q4) | What files can it touch? Size limits? Permissions? What if disk is full? |
 | Database access (Q4) | Connection pooling? Transactions? What if the DB is slow/down? |
+| Conversation context (Q7) | How long are typical sessions? How many turns before context gets stale? Should old context be summarised by the LLM or just dropped? |
+| Long-term memory (Q7) | What kinds of facts should it learn — user preferences, domain rules, patterns? Should it learn from user corrections automatically? At what point does stored knowledge become noise? |
+| Both (Q7) | Should conversation turns that contain reusable facts get promoted to long-term memory? Or are the two tiers independent? |
 
 **Always ask these three (any agent):**
 1. "Why does this need an agent with LLM reasoning instead of a deterministic

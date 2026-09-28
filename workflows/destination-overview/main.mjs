@@ -8,7 +8,7 @@ const engineScript = path.join(here, 'destination-overview.js');
 
 export const selfExecuting = true;
 
-export async function runDestinationOverview({ fleetApi, workspace, destination, signal, reportPhase } = {}) {
+export async function runDestinationOverview({ fleetApi, workspace, destination, signal, reportPhase, memories } = {}) {
   ensureApralabs();
   if (!fleetApi) {
     return withStandaloneLease((ctx) => runDestinationOverview({ ...ctx, destination, reportPhase }));
@@ -24,6 +24,7 @@ export async function runDestinationOverview({ fleetApi, workspace, destination,
     destination: destination || 'London',
     signal,
     reportPhase,
+    memories: memories ?? [],
   });
 }
 

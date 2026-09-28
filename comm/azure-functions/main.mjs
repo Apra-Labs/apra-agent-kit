@@ -4,12 +4,14 @@
 import { app } from '@azure/functions';
 import * as df from 'durable-functions';
 import { startHost } from '../../host/index.mjs';
+import { createLogger } from '../../host/logger.mjs';
 import { createAzureFunctionsAdapter, getHttpDurableClient } from './http.mjs';
 import { registerDurableFunctions } from './index.mjs';
 
 const clientInput = df.input.durableClient();
 
 const started = await startHost({
+  logger: createLogger({ prefix: 'host', target: 'file', filePath: './logs/app.log' }),
   createAdapter: () => createAzureFunctionsAdapter({
     extraInputs: [clientInput],
     getClient: (context) => df.getClient(context),
@@ -29,6 +31,8 @@ await registerDurableFunctions({
     guardrailsMod: started.guardrailsMod,
     notifier: started.notifier,
     jobs: started.jobs,
+    memory: started.memory,
+    logger: started.logger,
   }),
 });
 

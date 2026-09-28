@@ -5,7 +5,7 @@ import { classify, executeWorkflow } from './router.mjs';
 import { runTask } from './run-loop.mjs';
 import { createBudgets } from './budgets.mjs';
 
-export const PROGRESS_TYPES = new Set(['plan', 'action', 'observation', 'review', 'step_review', 'step_started', 'step_failed']);
+export const PROGRESS_TYPES = new Set(['plan', 'action', 'observation', 'review', 'step_review', 'step_started', 'step_failed', 'memory_recall', 'memory_learn']);
 
 export function describeEvent(event) {
   switch (event.kind ?? event.type) {
@@ -140,9 +140,14 @@ export function mergeBudgetConfig(baseConfig, task) {
   return merged;
 }
 
+function extractTaskTags(task) {
+  const goal = typeof task === 'string' ? task : task?.goal ?? '';
+  return goal.toLowerCase().split(/\W+/).filter(w => w.length > 3);
+}
+
 export async function executeHostedTask(task, {
   api, activeDispatcher, toolRegistry, runLoopConfig, routerConfig,
-  budgetsConfig, guardrailsMod, jobs, signal, onProgress,
+  budgetsConfig, guardrailsMod, jobs, signal, onProgress, memory, logger = console,
 }) {
   const fullTask = { id: task.id ?? `t-${Date.now().toString(36)}`, ...task };
   // Accept a caller-supplied trace id so a run can be correlated with the
@@ -222,31 +227,141 @@ export async function executeHostedTask(task, {
     }
 
     const workspace = { workerId: lease.workerId, doer: lease.doer, reviewer: lease.reviewer };
+    const pooledApi = createPooledFleetApi(api, lease);
 
+    let memories = [];
+    if (memory?.longTerm) {
+      try {
+        const tags = extractTaskTags(task);
+        logger.info?.(`memory recall tags=${JSON.stringify(tags)}`);
+        const recalled = await memory.longTerm.recall({ tags, taskId: fullTask.id });
+        memories = Array.isArray(recalled) ? recalled : [];
+        logger.info?.(`memory recalled ${memories.length} facts`);
+        if (onProgress) {
+          try {
+            await onProgress({
+              kind: 'memory_recall',
+              count: memories.length,
+              facts: memories.map(m => ({ id: m.id, kind: m.kind, text: m.text, tags: m.tags, state: m.state, retrievalStrength: m.retrievalStrength })),
+            });
+          } catch { /* progress is best-effort */ }
+        }
+      } catch (err) {
+        logger.warn?.(`memory recall failed — continuing: ${err?.message ?? err}`);
+        memories = [];
+      }
+    }
+
+    let conversationHistory = [];
+    const cc = memory?.conversationContext;
+    const ccMode = cc?.mode ?? null;
+
+    if (ccMode === 'store' && task.sessionId) {
+      try {
+        conversationHistory = await cc.forPrompt(task.sessionId);
+        logger.info?.(`conversation context loaded: ${conversationHistory.length} entries for session ${task.sessionId}`);
+      } catch (err) {
+        logger.warn?.(`conversation context load failed — continuing: ${err?.message ?? err}`);
+      }
+    } else if (ccMode === 'passthrough' && Array.isArray(task.conversation)) {
+      const max = cc.maxRecentTurns ?? 10;
+      const recent = task.conversation.slice(-max * 2).map(c => ({
+        role: c.role === 'assistant' ? 'turn' : c.role,
+        ...(c.role === 'user' ? { goal: c.text } : {}),
+        ...(c.role === 'assistant' ? { answer: c.text } : {}),
+      }));
+      // Pair user/assistant into turn objects
+      const paired = [];
+      for (let i = 0; i < recent.length - 1; i += 2) {
+        const u = recent[i];
+        const a = recent[i + 1];
+        if (u.role === 'user' && a?.role === 'turn') {
+          paired.push({ role: 'turn', goal: u.goal, answer: a.answer });
+        }
+      }
+      conversationHistory = paired.slice(-max);
+      logger.info?.(`conversation passthrough: ${conversationHistory.length} turns from caller`);
+    } else if (Array.isArray(task.conversation) && !ccMode) {
+      // Fallback: no mode configured but caller sent conversation — use raw, cap at 10
+      conversationHistory = task.conversation.slice(-10);
+    }
+
+    let result;
     if (strategy === 'workflow') {
-      const wfResult = await executeWorkflow(workflowName, workflowArgs, {
-        fleetApi: createPooledFleetApi(api, lease),
+      result = await executeWorkflow(workflowName, workflowArgs, {
+        fleetApi: pooledApi,
         toolRegistry,
         signal: combined.signal,
         onProgress,
         workspace,
+        memories,
       });
-      return { taskId: fullTask.id, traceId, routedTo, ...wfResult };
+    } else {
+      result = await runTask(fullTask, {
+        tools: toolRegistry.filter(t => !t.routing),
+        fleetApi: pooledApi,
+        budgets: budgetsMod,
+        guardrails: guardrailsMod,
+        ...runLoopConfig,
+        strategy,
+        jobs,
+        traceId,
+        signal: combined.signal,
+        workspace,
+        onIteration: onProgress,
+        memory,
+        memories,
+        conversation: conversationHistory,
+      });
     }
 
-    const result = await runTask(fullTask, {
-      tools: toolRegistry,
-      fleetApi: createPooledFleetApi(api, lease),
-      budgets: budgetsMod,
-      guardrails: guardrailsMod,
-      ...runLoopConfig,
-      strategy,
-      jobs,
-      traceId,
-      signal: combined.signal,
-      workspace,
-      onIteration: onProgress,
-    });
+    if (ccMode === 'store' && task.sessionId && cc) {
+      try {
+        const answerText = typeof result.result === 'string'
+          ? result.result
+          : JSON.stringify(result.result ?? null);
+        const turn = await cc.recordTurn(task.sessionId, {
+          goal: task.goal,
+          answer: answerText,
+          status: result.status,
+        });
+        logger.info?.(`conversation turn recorded: ${turn?.id} for session ${task.sessionId}`);
+      } catch (err) {
+        logger.warn?.(`conversation turn record failed: ${err?.message ?? err}`);
+      }
+    }
+
+    if (memory?.learner) {
+      try {
+        const learned = await memory.learner.extract({
+          task: fullTask,
+          history: result.observations ?? result.history ?? [],
+          recalledFacts: memories,
+          fleetApi: pooledApi,
+        });
+        if (onProgress) {
+          try {
+            await onProgress({
+              kind: 'memory_learn',
+              newFacts: (learned.newFacts ?? []).map(r => {
+                const e = r.entry ?? r;
+                return { id: e.id, kind: e.kind, text: e.text, tags: e.tags };
+              }),
+              promotedIds: learned.promotedIds ?? [],
+            });
+          } catch { /* progress is best-effort */ }
+        }
+      } catch (err) {
+        logger.warn?.(`memory learner failed: ${err?.message ?? err}`);
+      }
+    }
+    if (memory?.runState) {
+      try {
+        await memory.runState.clear(fullTask.id ?? task.id ?? task.goal);
+      } catch (err) {
+        logger.warn?.(`memory run-state clear failed: ${err?.message ?? err}`);
+      }
+    }
     return { taskId: fullTask.id, traceId, routedTo, ...result };
   } finally {
     await lease.release();

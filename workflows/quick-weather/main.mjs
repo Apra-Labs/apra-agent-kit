@@ -8,7 +8,7 @@ const engineScript = path.join(here, 'quick-weather.js');
 
 export const selfExecuting = true;
 
-export async function runQuickWeather({ fleetApi, workspace, city, signal, reportPhase } = {}) {
+export async function runQuickWeather({ fleetApi, workspace, city, signal, reportPhase, memories } = {}) {
   ensureApralabs();
   if (!fleetApi) {
     return withStandaloneLease((ctx) => runQuickWeather({ ...ctx, city, reportPhase }));
@@ -24,6 +24,7 @@ export async function runQuickWeather({ fleetApi, workspace, city, signal, repor
     city: city || 'London',
     signal,
     reportPhase,
+    memories: memories ?? [],
   });
 }
 

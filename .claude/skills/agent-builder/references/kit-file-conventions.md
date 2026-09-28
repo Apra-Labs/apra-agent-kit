@@ -328,6 +328,161 @@ export default {
 - Include output format requirements
 - Include domain-specific constraints and safety rules
 - This replaces the generic system prompt — don't rely on `host/prompts/system.mjs`
+- If long-term memory is enabled, coach the LLM to use memory tools:
+  "ALWAYS use the recall tool before starting a task to check for relevant
+  prior knowledge. Use the remember tool to store useful facts."
+- If conversation context is enabled, no agentDescription coaching is needed —
+  prior turns are injected into the system prompt automatically.
+- If both are enabled, distinguish their purposes: conversation context is
+  "what we just discussed", long-term memory is "what I've learned over time".
+
+## Memory Module Configuration
+
+The `modules.memory` block in `host.config.mjs` configures three independent tiers.
+All are optional — omit the entire `memory` block if the agent doesn't need memory.
+
+```javascript
+modules: {
+  // ... other modules ...
+
+  memory: {
+    // Tier 1: Conversation context — carries prior chat turns across tasks
+    // within a single browser/API session.
+    conversationContext: {
+      enabled: true,
+      mode: 'store',                      // 'store' | 'passthrough'
+      store: 'sqlite',                    // 'sqlite' | 'cosmos' | function
+      dbPath: './memory/conversation.db', // sqlite only
+      maxRecentTurns: 6,                  // verbatim turns in prompt
+      maxTotalTurns: 20,                  // cap per session
+      compactionStrategy: 'summarise',    // 'summarise' | 'sliding-window'
+      answerMaxChars: 500,                // truncate stored answers
+    },
+
+    // Tier 2: Run state — crash recovery for interrupted tasks.
+    runState: {
+      enabled: true,
+      store: 'sqlite',
+      dbPath: './memory/run-state.db',
+    },
+
+    // Tier 3: Long-term memory — cross-session facts with FSRS-6 decay.
+    longTerm: {
+      enabled: true,
+      store: 'sqlite',                   // 'sqlite' | 'cosmos' | 'filesystem' | function
+      dbPath: './memory/memory.db',      // sqlite only
+      dir: './memory',                   // filesystem only
+      autoLearn: true,                   // learner extracts facts after each task
+      decay: {
+        mode: 'auto',                    // 'auto' (timer) | 'on-recall'
+        intervalMs: 120_000,             // auto mode only
+      },
+      dedup: { enabled: true },          // reject duplicate facts
+      recallLimit: 20,                   // max facts returned per recall
+      maxEntries: 500,                   // cap before purge
+      preloadDir: './knowledge',         // optional — seed .json files loaded on startup
+    },
+  },
+}
+```
+
+### Mode selection
+
+| Mode | When to use |
+|---|---|
+| `store` | Chat UI agents where the server manages session state. Client sends `sessionId`. |
+| `passthrough` | API callers who manage their own history. Client sends `conversation[]`. No DB. |
+
+### Store selection
+
+| Store | When to use |
+|---|---|
+| `sqlite` | Local dev, single-instance deployments. Uses `node:sqlite` `DatabaseSync`. |
+| `cosmos` | Azure deployments. Lazy-loaded `@azure/cosmos`. Partition key: `kind` (long-term) or `sessionId` (conversation). |
+| `filesystem` | Simplest option. JSON files in a directory. Long-term memory only. |
+| function | Custom adapter. Receives config, must return an object implementing the store contract. |
+
+## Memory Tools
+
+When long-term memory is enabled, the host automatically registers four tools
+via `withMemoryTools()` from `host/tools/memory-tools.mjs`. No registry entry
+is needed — they appear alongside your custom tools.
+
+| Tool | Description | Input |
+|------|------------|-------|
+| `remember` | Store a fact in long-term memory | `{ text, kind, tags? }` |
+| `recall` | Retrieve relevant facts | `{ tags?, kinds?, query?, limit? }` |
+| `forget` | Remove a fact by ID | `{ id }` |
+| `promote` | Mark a fact as useful (strengthens it against decay) | `{ id }` |
+
+### Fact kinds
+
+The `kind` field categorises facts for retrieval:
+
+| Kind | Use for |
+|------|---------|
+| `domain` | Domain-specific knowledge (e.g. "Tokyo Narita has 3 terminals") |
+| `preference` | User preferences (e.g. "user prefers window seats") |
+| `pattern` | Recurring patterns (e.g. "flights to Osaka are cheapest on Tuesdays") |
+| `procedure` | How-to knowledge (e.g. "to book JR Pass, use the online portal first") |
+
+### agentDescription coaching
+
+When memory is enabled, the `agentDescription` in `host.config.mjs` should coach
+the LLM to use the memory tools. Examples:
+
+```
+// For an agent that should always check memory before planning:
+ALWAYS use the recall tool at the start of each task to check for relevant
+prior knowledge about the destination, user preferences, or known patterns.
+Use the remember tool to store useful facts you discover during research.
+
+// For an agent that should learn from corrections:
+When the user corrects your output or provides a preference, use the remember
+tool to store it as a 'preference' fact so you apply it in future conversations.
+```
+
+### Memory preloader
+
+If `longTerm.preloadDir` is configured, the host loads `.json` files from that
+directory on startup. Each JSON file contains one memory entry object (or an
+array of them) with their own `kind` field. Duplicates are skipped.
+
+```
+knowledge/
+├── city-guides.json       → memory entries with their own kind fields
+├── visa-requirements.json → memory entries with their own kind fields
+└── booking-rules.json     → memory entries with their own kind fields
+```
+
+## Conversation Store
+
+The conversation context module uses its own store interface, separate from the
+long-term memory store. Both follow the adapter pattern but have different method
+contracts because they manage different data shapes.
+
+### Store interface
+
+File: `host/memory/conversation-store/interface.mjs`
+
+Required methods: `open`, `close`, `append`, `get`, `update`, `listSession`,
+`purgeSessions`.
+
+### SQLite implementation
+
+File: `host/memory/conversation-store/sqlite.mjs`
+
+Table: `conversation_turns` with columns: `id`, `session_id`, `turn_index`,
+`goal`, `answer`, `status`, `created_at`, `retrieval_strength`, `stability`,
+`state`, `last_promoted_at`, `summary`.
+
+Indexes: `idx_ct_session` (session_id), `idx_ct_state` (state).
+
+### Cosmos implementation
+
+File: `host/memory/conversation-store/cosmos.mjs`
+
+Lazy-loaded. Partition key: `sessionId`.
 
 ## API Key Propagation
 
@@ -419,6 +574,12 @@ agentDescription summary. Link to the full config file rather than duplicating i
 |----------|----------|---------|-------------|
 | `CLAUDE_CODE_OAUTH_TOKEN` | Yes | — | Fleet worker authentication |
 
+## Memory
+
+<If memory is configured: which tiers are enabled, what the agent remembers,
+what memory tools are available. If not: "Memory is not configured for this agent.
+See `host.config.mjs` to enable it.">
+
 ## Testing
 
 <How to run tests: `npm test` for mock tests, integration test commands.>
@@ -442,6 +603,7 @@ See [docs/architecture.md](docs/architecture.md) for kit internals.
 - Every env var the agent needs must be listed
 - The Quick Start must be copy-pasteable — a new developer runs the commands and the agent starts
 - Do NOT include kit development docs (architecture internals, contributing guidelines) — those belong in `docs/` and are already shipped with the kit
+- If memory is enabled, document which tiers and what the agent learns
 
 ## Build Order
 
@@ -452,7 +614,10 @@ so the project stays runnable at every step:
 2. **Workflows** — depend on tools, follow the triad pattern
 3. **Registry** — imports workflows/tools, wires MCP interface
 4. **Host config** — `host.config.mjs` with agentDescription, modules, strategy
-5. **Tests** — verify each piece with mock-fleet
-6. **Deployment** — Docker, env vars, compose updates
-7. **Documentation** — generate `README.md` from the spec (see Agent README section above)
-8. **Session cleanup + integration test** — clear stale sessions, then end-to-end run with Fleet
+5. **Memory config** — configure `modules.memory` tiers (conversation context,
+   run state, long-term), set up preload directory if needed, add memory tool
+   coaching to `agentDescription`
+6. **Tests** — verify each piece with mock-fleet
+7. **Deployment** — Docker, env vars, compose updates
+8. **Documentation** — generate `README.md` from the spec (see Agent README section)
+9. **Session cleanup + integration test** — clear stale sessions, then end-to-end run

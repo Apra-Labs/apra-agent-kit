@@ -23,6 +23,8 @@ export const PUBLISHED_DIRS = [
   'tools/textstats',
   'docs/architecture.md',
   'docs/development.md',
+  'docs/getting-started.md',
+  'docs/memory.md',
   '.dockerignore',
 ];
 

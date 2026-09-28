@@ -18,5 +18,10 @@ host.config.express-backup.mjs
 host.config.local-functions.mjs
 __azurite_db_*
 __blobstorage__/
+__queuestorage__/
+AzuriteConfig
+memory/*.db
+memory/*.db-shm
+memory/*.db-wal
 logs/
 .token

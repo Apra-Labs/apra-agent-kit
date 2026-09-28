@@ -6,6 +6,18 @@
 /* global marked, DOMPurify */
 (() => {
   var apiBase = location.pathname.replace(/\/chat\/?$/, '');
+
+  var sessionId = (function() {
+    var key = 'chat-session-id';
+    var existing = null;
+    try { existing = sessionStorage.getItem(key); } catch(e) {}
+    if (existing) return existing;
+    var id = 'ses-' + crypto.randomUUID().slice(0, 12);
+    try { sessionStorage.setItem(key, id); } catch(e) {}
+    return id;
+  })();
+
+  var conversationTurns = [];
   var $ = function(sel) { return document.querySelector(sel); };
   var transcriptEl = $('#transcript');
   var composerEl = $('#composer');
@@ -45,7 +57,14 @@
     try { localStorage.setItem('chat-theme', theme); } catch(e) {}
   });
 
-  var current = null; // { turn, card, source, grouped, planOpen, openStep }
+  var current = null; // { turn, card, source, grouped }
+  var cardStates = new WeakMap();
+
+  function getCardState(card) {
+    var s = cardStates.get(card);
+    if (!s) { s = { planOpen: true, openStep: null, memRecallOpen: false, memLearnOpen: false }; cardStates.set(card, s); }
+    return s;
+  }
 
   function h(tag, cls, text) {
     var node = document.createElement(tag);
@@ -128,7 +147,8 @@
     };
   }
 
-  function renderPlan(turn) {
+  function renderPlan(turn, card) {
+    var cs = getCardState(card);
     var plan = h('div', 'plan');
     // Header
     var hdr = h('div', 'plan-hdr');
@@ -136,11 +156,12 @@
     left.append(h('span', 'plan-label', 'PLAN'));
     left.append(h('span', 'plan-meta', planSummary(turn)));
     hdr.append(left);
-    var toggle = h('span', 'plan-toggle', current.planOpen ? 'HIDE STEPS' : 'SHOW STEPS');
+    var toggle = h('span', 'plan-toggle', cs.planOpen ? 'HIDE STEPS' : 'SHOW STEPS');
     toggle.addEventListener('click', function(e) {
       e.stopPropagation();
-      current.planOpen = !current.planOpen;
-      renderCard(current.card, current.turn);
+      var s = getCardState(card);
+      s.planOpen = !s.planOpen;
+      renderCard(card, s.turn);
     });
     hdr.append(toggle);
     plan.append(hdr);
@@ -151,21 +172,22 @@
     bar.append(fill);
     plan.append(bar);
     // Steps
-    if (current.planOpen) {
+    if (cs.planOpen) {
       var steps = h('div', 'plan-steps');
       for (var i = 0; i < turn.plan.steps.length; i++) {
         (function(idx) {
           var s = turn.plan.steps[idx];
           var c = stepColors(s.status);
-          var isOpen = current.openStep === idx;
+          var isOpen = cs.openStep === idx;
           var hasContent = s.result != null || s.error;
 
           var row = h('div', 'plan-step');
           row.style.background = isOpen ? '#FAFBF7' : c.bg;
           row.addEventListener('click', function() {
             if (!hasContent) return;
-            current.openStep = current.openStep === idx ? null : idx;
-            renderCard(current.card, current.turn);
+            var st = getCardState(card);
+            st.openStep = st.openStep === idx ? null : idx;
+            renderCard(card, st.turn);
           });
 
           // Caret
@@ -415,7 +437,101 @@
 
   // --- Card rendering ---
 
+  // --- Memory panels ---
+
+  function renderMemoryFact(fact, opts) {
+    var row = h('div', 'mem-fact');
+    var kindBadge = h('span', 'mem-kind mem-kind-' + (fact.kind || 'domain'), (fact.kind || 'domain').toUpperCase());
+    row.append(kindBadge);
+    var textEl = h('span', 'mem-text', fact.text);
+    row.append(textEl);
+    if (fact.tags && fact.tags.length > 0) {
+      var tagsEl = h('span', 'mem-tags');
+      for (var t = 0; t < fact.tags.length; t++) {
+        tagsEl.append(h('span', 'mem-tag', fact.tags[t]));
+      }
+      row.append(tagsEl);
+    }
+    if (opts && opts.strength != null) {
+      var str = h('span', 'mem-strength');
+      var pct = Math.round(opts.strength * 100);
+      str.textContent = pct + '%';
+      str.title = 'Retrieval strength';
+      row.append(str);
+    }
+    return row;
+  }
+
+  function renderMemoryRecall(recall, card) {
+    if (!recall) return null;
+    var cs = getCardState(card);
+    var hasFacts = recall.facts && recall.facts.length > 0;
+    var panel = h('div', 'mem-panel mem-recall');
+    var hdr = h('div', 'mem-hdr');
+    var icon = h('span', 'mem-icon', '⟵');
+    hdr.append(icon);
+    hdr.append(h('span', 'mem-label', recall.count > 0 ? 'RECALLED ' + recall.count + ' MEMORIES' : 'RECALLED · NOTHING MATCHED'));
+    if (hasFacts) {
+      var toggle = h('span', 'mem-toggle', cs.memRecallOpen ? 'HIDE' : 'SHOW');
+      toggle.addEventListener('click', function(e) {
+        e.stopPropagation();
+        var s = getCardState(card);
+        s.memRecallOpen = !s.memRecallOpen;
+        renderCard(card, s.turn);
+      });
+      hdr.append(toggle);
+    }
+    panel.append(hdr);
+    if (cs.memRecallOpen && hasFacts) {
+      var list = h('div', 'mem-list');
+      for (var i = 0; i < recall.facts.length; i++) {
+        list.append(renderMemoryFact(recall.facts[i], { strength: recall.facts[i].retrievalStrength }));
+      }
+      panel.append(list);
+    }
+    return panel;
+  }
+
+  function renderMemoryLearn(learn, card) {
+    if (!learn) return null;
+    var cs = getCardState(card);
+    var hasNew = learn.newFacts && learn.newFacts.length > 0;
+    var hasPromoted = learn.promotedIds && learn.promotedIds.length > 0;
+    var panel = h('div', 'mem-panel mem-learn');
+    var hdr = h('div', 'mem-hdr');
+    var icon = h('span', 'mem-icon', '⟶');
+    hdr.append(icon);
+    if (hasNew || hasPromoted) {
+      var parts = [];
+      if (hasNew) parts.push(learn.newFacts.length + ' NEW');
+      if (hasPromoted) parts.push(learn.promotedIds.length + ' REINFORCED');
+      hdr.append(h('span', 'mem-label', 'LEARNED · ' + parts.join(' · ')));
+    } else {
+      hdr.append(h('span', 'mem-label', 'LEARNED · NOTHING NEW'));
+    }
+    if (hasNew) {
+      var toggle = h('span', 'mem-toggle', cs.memLearnOpen ? 'HIDE' : 'SHOW');
+      toggle.addEventListener('click', function(e) {
+        e.stopPropagation();
+        var s = getCardState(card);
+        s.memLearnOpen = !s.memLearnOpen;
+        renderCard(card, s.turn);
+      });
+      hdr.append(toggle);
+    }
+    panel.append(hdr);
+    if (cs.memLearnOpen && hasNew) {
+      var list = h('div', 'mem-list');
+      for (var i = 0; i < learn.newFacts.length; i++) {
+        list.append(renderMemoryFact(learn.newFacts[i], {}));
+      }
+      panel.append(list);
+    }
+    return panel;
+  }
+
   function renderCard(card, turn) {
+    getCardState(card).turn = turn;
     card.replaceChildren();
     var img = h('img', 'bot-mark');
     img.src = markSrc;
@@ -425,12 +541,20 @@
 
     var body = h('div', 'bot-body');
 
+    // Memory recall (before pipeline)
+    var recallPanel = renderMemoryRecall(turn.memoryRecall, card);
+    if (recallPanel) body.append(recallPanel);
+
     // Status pipeline + plan
     body.append(renderStatusPipeline(turn));
 
     if (turn.plan) {
-      body.append(renderPlan(turn));
+      body.append(renderPlan(turn, card));
     }
+
+    // Memory learn (after plan, before answer)
+    var learnPanel = renderMemoryLearn(turn.memoryLearn, card);
+    if (learnPanel) body.append(learnPanel);
 
     // Answer
     if (turn.status === 'completed' && turn.answer != null) {
@@ -453,7 +577,7 @@
     goalEl.focus();
     sendBtn.className = 'btn-send';
     // Collapse plan when done
-    current.planOpen = false;
+    getCardState(current.card).planOpen = false;
     renderCard(current.card, current.turn);
   }
 
@@ -475,6 +599,12 @@
           try { event = JSON.parse(msg.data); } catch (err) { console.error('unparseable event', msg.data, err); return; }
           console.log(event.type, event.kind || '', event);
           apply(function(turn) { return reduce(turn, event); });
+          if (type === 'settled' && event.status === 'completed' && event.result) {
+            var answerText = typeof event.result === 'string' ? event.result : JSON.stringify(event.result);
+            if (answerText.length > 500) answerText = answerText.slice(0, 500);
+            conversationTurns.push({ role: 'user', text: current.turn.goal });
+            conversationTurns.push({ role: 'assistant', text: answerText });
+          }
         });
       })(types[t]);
     }
@@ -494,11 +624,11 @@
     // Bot card
     var card = h('div', 'bot-msg');
     transcriptEl.append(card);
-    current = { turn: initialTurn(goal), card: card, source: null, grouped: false, planOpen: true, openStep: null };
+    current = { turn: initialTurn(goal), card: card, source: null, grouped: false };
     renderCard(card, current.turn);
     updateComposer(true);
 
-    fetch(apiBase + '/task', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ goal: goal }) })
+    fetch(apiBase + '/task', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ goal: goal, sessionId: sessionId, conversation: conversationTurns.slice(-20) }) })
       .then(function(res) {
         return res.json().catch(function() { return null; }).then(function(body) { return { res: res, body: body }; });
       })

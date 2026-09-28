@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // bin/create.mjs
-// npm create @dsiddharth2/fleet-agent <dir>
+// npm create @apralabs/fleet-agent <dir>
 //
 // Copies the published framework folders into the target, overlays template/,
 // substitutes the project name, then offers to install what is missing. Only a
@@ -169,7 +169,7 @@ export async function generate(options, io = { write: console.log }) {
 }
 
 const HELP = `
-  npm create @dsiddharth2/fleet-agent <directory> [options]
+  npm create @apralabs/fleet-agent <directory> [options]
 
   --no-install   copy and substitute only; run no npm, no git, no prompts
   --yes, -y      accept every prompt without asking

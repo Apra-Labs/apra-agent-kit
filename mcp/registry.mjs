@@ -8,6 +8,7 @@ import { runQuickWeather } from '../workflows/quick-weather/main.mjs';
 import { runDestinationOverview } from '../workflows/destination-overview/main.mjs';
 import { runTravelPrep } from '../workflows/travel-prep/main.mjs';
 import { runRouteCheck } from '../workflows/route-check/main.mjs';
+import { runTripPlanner } from '../workflows/trip-planner/main.mjs';
 
 // Routable workflows. To expose a new tool, append an entry here — no changes to
 // server.mjs or http.mjs are needed. `description` is read by the connected
@@ -71,13 +72,14 @@ export const defaultRegistry = [
         .describe('City name to brief on. Defaults to London.'),
     }),
     annotations: { readOnlyHint: true, idempotentHint: false },
-    async run({ fleetApi, args, signal, reportPhase, workspace }) {
+    async run({ fleetApi, args, signal, reportPhase, workspace, memories }) {
       const result = await runCityBriefing({
         fleetApi,
         workspace,
         city: args.city,
         signal,
         reportPhase,
+        memories,
       });
       return `city briefing completed: ${JSON.stringify(result)}`;
     },
@@ -94,8 +96,8 @@ export const defaultRegistry = [
       city: z.string().optional().describe('City name. Defaults to London.'),
     }),
     annotations: { readOnlyHint: true, idempotentHint: false },
-    async run({ fleetApi, args, signal, reportPhase, workspace }) {
-      const result = await runQuickWeather({ fleetApi, workspace, city: args.city, signal, reportPhase });
+    async run({ fleetApi, args, signal, reportPhase, workspace, memories }) {
+      const result = await runQuickWeather({ fleetApi, workspace, city: args.city, signal, reportPhase, memories });
       return `quick weather completed: ${JSON.stringify(result)}`;
     },
   },
@@ -111,8 +113,8 @@ export const defaultRegistry = [
       destination: z.string().optional().describe('Destination name. Defaults to London.'),
     }),
     annotations: { readOnlyHint: true, idempotentHint: false },
-    async run({ fleetApi, args, signal, reportPhase, workspace }) {
-      const result = await runDestinationOverview({ fleetApi, workspace, destination: args.destination, signal, reportPhase });
+    async run({ fleetApi, args, signal, reportPhase, workspace, memories }) {
+      const result = await runDestinationOverview({ fleetApi, workspace, destination: args.destination, signal, reportPhase, memories });
       return `destination overview completed: ${JSON.stringify(result)}`;
     },
   },
@@ -128,8 +130,8 @@ export const defaultRegistry = [
       country: z.string().optional().describe('Country name. Defaults to Japan.'),
     }),
     annotations: { readOnlyHint: true, idempotentHint: false },
-    async run({ fleetApi, args, signal, reportPhase, workspace }) {
-      const result = await runTravelPrep({ fleetApi, workspace, country: args.country, signal, reportPhase });
+    async run({ fleetApi, args, signal, reportPhase, workspace, memories }) {
+      const result = await runTravelPrep({ fleetApi, workspace, country: args.country, signal, reportPhase, memories });
       return `travel prep completed: ${JSON.stringify(result)}`;
     },
   },
@@ -149,9 +151,36 @@ export const defaultRegistry = [
       to: z.string().optional().describe('Destination city. Defaults to Manali.'),
     }),
     annotations: { readOnlyHint: true, idempotentHint: false },
-    async run({ fleetApi, args, signal, reportPhase, workspace }) {
-      const result = await runRouteCheck({ fleetApi, workspace, from: args.from, to: args.to, signal, reportPhase });
+    async run({ fleetApi, args, signal, reportPhase, workspace, memories }) {
+      const result = await runRouteCheck({ fleetApi, workspace, from: args.from, to: args.to, signal, reportPhase, memories });
       return `route check completed: ${JSON.stringify(result)}`;
+    },
+  },
+  {
+    name: 'trip-planner',
+    description:
+      'Full trip plan: destination overview, weather, forecast, attractions, holidays, travel advisory, currency, route, ' +
+      'and a composed day-by-day itinerary with budget. Uses nine tools plus one agent compose call.',
+    routing: {
+      description: 'Full trip plan with itinerary, weather, attractions, budget, and practical tips for a destination',
+      args: {
+        destination: { extract: 'destination city or region from the goal' },
+        from: { extract: 'origin city from the goal (if mentioned)' },
+      },
+    },
+    inputSchema: z.object({
+      destination: z.string().optional().describe('Destination city or region. Defaults to London.'),
+      from: z.string().optional().describe('Origin city for route calculation. Optional.'),
+      country: z.string().optional().describe('Destination country name or ISO code. Auto-derived from destination if omitted.'),
+      days: z.number().optional().describe('Number of forecast days. Defaults to 7.'),
+    }),
+    annotations: { readOnlyHint: true, idempotentHint: false },
+    async run({ fleetApi, args, signal, reportPhase, workspace, memories }) {
+      const result = await runTripPlanner({
+        fleetApi, workspace, destination: args.destination, from: args.from,
+        country: args.country, days: args.days, signal, reportPhase, memories,
+      });
+      return `trip plan completed: ${JSON.stringify(result)}`;
     },
   },
   {

@@ -62,6 +62,30 @@ Manages Claude Code instances in three tiers:
 
 Each pair = a doer (does the work) + a reviewer (checks the plan).
 
+**Memory** (`host/memory/`) —
+Three independent tiers that give the agent context beyond the current task:
+
+- **Conversation context** — prior chat turns within a browser session. Before each task,
+  turns are loaded from SQLite, decayed via FSRS-6, and optionally compacted (older turns
+  summarised by the LLM or dropped). The formatted history is injected into the system prompt
+  so the agent can understand references like "the cheapest one" or "do that again". After the
+  task, the goal+answer pair is recorded as a new turn.
+
+- **Run state** — crash recovery. The plan-execute strategy checkpoints after each completed
+  step. If the process crashes, the next restart loads the checkpoint and resumes from the
+  last step instead of starting over.
+
+- **Long-term memory** — cross-session facts with spaced-repetition decay. Facts are stored
+  with a `kind` (domain, preference, pattern, procedure) and `tags`. Before each task, relevant
+  facts are recalled by tag and injected into the system prompt. After the task, the **learner**
+  sends the observation history to the LLM to extract reusable facts (auto-learn). Facts that
+  go unused decay via FSRS-6 (`active → dormant → silent → unavailable`); facts that are used
+  are reinforced and survive longer. The agent also gets four tools (`remember`, `recall`,
+  `forget`, `promote`) to manage memory explicitly during a task.
+
+All three tiers use pluggable store adapters (SQLite for local, Cosmos for Azure). Memory
+failures never halt a task — every operation is wrapped in try/catch with graceful fallbacks.
+
 **Notifications** (`host/notify/`) —
 Pushes job progress out in real time. SSE stream for browser clients, webhook POST with
 retry for server-to-server callbacks.
@@ -80,7 +104,13 @@ executed on Fleet member machines via `executeCommand`.
 
 ```
 Client → HTTP → executeHostedTask → dispatch (acquire worker pair)
-  → strategy loop (LLM picks tools, observes, replans)
+  → router classifies goal (workflow / plan-execute / open-ended)
+  → recall long-term memory (by task tags)
+  → load conversation context (by sessionId)
+  → strategy loop (LLM sees memories + conversation in system prompt,
+     picks tools, observes, replans)
+  → learner extracts new facts into long-term memory
+  → record conversation turn
   → return result in same HTTP response
   → release worker pair
 ```
@@ -90,7 +120,9 @@ Client → HTTP → executeHostedTask → dispatch (acquire worker pair)
 ```
 Client → HTTP → jobs.submit → SQLite queue → return 202 + jobId
   ↓ worker loop picks up
-  executeHostedTask → strategy loop → progress events → settled
+  executeHostedTask → recall + conversation load → strategy loop
+    → progress events (including memory recall/learn) → settled
+    → learner + conversation record
   ↓ fan-out
   SSE subscribers ← notifier → webhook POST
 
@@ -138,9 +170,14 @@ See [jobs.md](jobs.md) for the full API reference with request/response details.
 ├── host/                  Autonomous agent host
 │   ├── strategies/        ReAct and Plan-Execute async generators
 │   ├── prompts/           LLM prompt templates
+│   ├── memory/            Three-tier memory system
+│   │   ├── conversation-store/  Conversation turn adapters (SQLite, Cosmos)
+│   │   ├── store/         Long-term memory adapters (SQLite, Cosmos, filesystem)
+│   │   ├── decay/         FSRS-6 spaced-repetition engine + timer
+│   │   └── dedup/         Duplicate fact detection
 │   ├── jobs/              Job queue backends + SQLite store
 │   ├── notify/            SSE and webhook notification channels
-│   ├── tools/             Tool registry + executor with timeout
+│   ├── tools/             Tool registry + executor + memory tools
 │   └── chat/              Built-in chat UI
 ├── mcp/                   MCP tool server (registry, server builder, HTTP)
 ├── pool/                  Worker dispatch (pool, ephemeral, queue tiers)
@@ -180,3 +217,19 @@ instance.
 
 **Backend pairing is enforced.** `in-process` (SQLite) pairs with `express` or `raw-http`.
 `durable` requires `azure-functions`. Cross-pairing throws at startup.
+
+**Memory never blocks the task.** Every memory operation (recall, store, conversation load,
+learner extraction) is wrapped in try/catch. If the store is down, recall returns empty,
+the learner skips extraction, and the task runs with a blank slate. The agent is useful
+without memory — memory makes it better over time but is never load-bearing.
+
+**FSRS-6 for decay, not heuristics.** The kit uses the FSRS-6 spaced-repetition algorithm
+(pre-trained on 700M+ Anki reviews) rather than simple time-based expiry. Facts that are
+used grow more stable (decay slower); facts that go unused fade on a mathematically
+principled curve. This means frequently useful knowledge survives indefinitely while
+one-off trivia disappears naturally.
+
+**Conversation context replaces working context.** The original working-context tier
+compacted intra-task observations, but both strategies already maintain a local
+`observations[]` array that serves the same purpose. Conversation context carries turns
+*across* tasks — a fundamentally different scope that provides real user-visible value.

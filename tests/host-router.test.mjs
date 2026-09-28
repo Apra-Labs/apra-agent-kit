@@ -229,7 +229,7 @@ describe('executeWorkflow', () => {
     assert.equal(result.result?.error, 'validation_failed');
   });
 
-  test('adapts string reportPhase calls into { iteration, message }', async () => {
+  test('adapts string reportPhase calls into step_started and step_completed events', async () => {
     const progress = [];
     const registry = [
       {
@@ -237,6 +237,7 @@ describe('executeWorkflow', () => {
         routing: { description: 'test', args: {} },
         async run({ reportPhase }) {
           await reportPhase('fetching weather');
+          await reportPhase('composing answer');
           return { answer: 'ok' };
         },
       },
@@ -247,9 +248,16 @@ describe('executeWorkflow', () => {
     });
     assert.equal(result.status, 'completed');
     assert.equal(result.result, 'ok');
-    assert.equal(progress.length, 1);
-    assert.equal(typeof progress[0], 'object');
+    assert.equal(progress.length, 4);
+    assert.equal(progress[0].kind, 'step_started');
     assert.equal(progress[0].message, 'fetching weather');
-    assert.equal(typeof progress[0].iteration, 'number');
+    assert.equal(progress[0].stepIndex, 0);
+    assert.equal(progress[1].kind, 'step_completed');
+    assert.equal(progress[1].stepIndex, 0);
+    assert.equal(progress[2].kind, 'step_started');
+    assert.equal(progress[2].message, 'composing answer');
+    assert.equal(progress[2].stepIndex, 1);
+    assert.equal(progress[3].kind, 'step_completed');
+    assert.equal(progress[3].stepIndex, 1);
   });
 });

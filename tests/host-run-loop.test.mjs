@@ -143,6 +143,25 @@ test('onIteration fires once per progress-worthy event with a message', async ()
   assert.equal(seen[1].kind, 'step_completed');
 });
 
+test('runTask passes memory through to the strategy unchanged', async () => {
+  const api = createMockFleetApi({
+    members: rosterNames(1),
+    promptResponses: [
+      '```tool_call\n{"tool": "weather", "args": {"city": "London"}}\n```',
+      '```done\n{"result": "15°C", "summary": "ok"}\n```',
+    ],
+  });
+  const memory = { conversationContext: null };
+  const result = await runTask(
+    { id: 't-1', goal: 'Weather in London' },
+    { strategy: 'open-ended', tools: makeTools(), fleetApi: api, memory },
+  );
+  assert.equal(result.status, 'completed');
+  const observations = result.history.filter(h => h.type === 'observation');
+  assert.equal(observations.length, 1);
+  assert.equal(observations[0].tool, 'weather');
+});
+
 test('onIteration errors do not break the run', async () => {
   const fleetApi = createMockFleetApi({
     members: rosterNames(1),

@@ -94,6 +94,8 @@ The guided path handles things that are easy to forget when building manually:
 
 - **Host configuration** — sets up `host.config.mjs` with the right strategy,
   modules, and an `agentDescription` that steers the LLM to use your tools
+- **Memory configuration** — if the agent needs memory, configures the right
+  tiers and coaches the LLM to use memory tools via `agentDescription`
 - **API key propagation** — `executeCommand` doesn't inherit env vars from the
   parent shell; the plan shows how to pass keys through
 - **Session cleanup** — clears stale Fleet worker sessions before integration
@@ -158,6 +160,13 @@ knows, what tools to use, and any domain-specific rules.`,
       title: 'My Agent',
       themes: ['blue'],           // 'apra', 'blue', or both for a toggle
     },
+
+    // Memory (all tiers optional — uncomment what you need)
+    // memory: {
+    //   conversationContext: { enabled: true, mode: 'store', store: 'sqlite', dbPath: './memory/conversation.db' },
+    //   runState: { enabled: true, store: 'sqlite', dbPath: './memory/run-state.db' },
+    //   longTerm: { enabled: true, store: 'sqlite', dbPath: './memory/memory.db', autoLearn: true },
+    // },
   },
 };
 ```
@@ -175,6 +184,7 @@ knows, what tools to use, and any domain-specific rules.`,
 | `modules.guardrails.defaultPolicy` | `'allow'`, `'deny'`, or `'approve'` (human-in-the-loop) |
 | `modules.dispatch.concurrency` | Max parallel tasks |
 | `modules.chat.themes` | `['blue']`, `['apra']`, or `['blue', 'apra']` for a toggle |
+| `modules.memory.*` | Three-tier memory: conversation context, run state, long-term. See [docs/memory.md](docs/memory.md) |
 
 #### Choosing a strategy
 
@@ -248,12 +258,12 @@ A task goes in, a result comes out. Six parts inside the boundary make that happ
 | # | Part | What it does | Status |
 |---|------|-------------|--------|
 | 1 | **Run Loop** | The core. Decides the next step and calls tools until done. Two strategies: **ReAct** (decide each turn) and **Plan-Execute** (plan upfront, replan on failure). | Shipped |
-| 2 | **Memory** | Three kinds: working context (what's in the LLM window), run state (crash recovery), long-term (cross-run facts). | Working context shipped. Run state + long-term in Phase 3. |
+| 2 | **Memory** | Three tiers: conversation context (prior chat turns within a session), run state (crash recovery), long-term (cross-session facts with FSRS-6 decay). Four LLM tools: remember, recall, forget, promote. | Shipped |
 | 3 | **Workflows** | Known sequences written as plain code and exposed as tools. If you already know the steps, don't make the agent figure them out. | Shipped |
 | 4 | **Tools** | Typed schemas, model-facing descriptions. Errors are returned, not thrown. 15 Python tools ship out of the box. | Shipped |
 | 5 | **Budgets & Stops** | Iteration cap (25), cost ceiling ($5), token limit (500K), wall-clock timeout (10 min), explicit definition of done. | Shipped |
 | 6 | **Guardrails** | Per-tool allow/deny policies, reversibility classification, filesystem sandboxing, input validation, dry-run mode. | Shipped |
-| — | **Evals** | Sits outside the boundary — a harness that calls the whole box and grades what comes out. 20-50 real tasks with graded outcomes. | Phase 3 |
+| — | **Evals** | Sits outside the boundary — a harness that calls the whole box and grades what comes out. 20-50 real tasks with graded outcomes. | Planned |
 
 ---
 
@@ -275,10 +285,19 @@ up to 10 ephemeral overflow pairs, then a wait queue.
 **The job queue** handles async tasks with real-time progress via SSE and webhook callbacks.
 Two backends: SQLite (local/Docker) or Azure Durable Functions (cloud).
 
+**Memory** gives the agent context across turns and sessions. Three independent tiers:
+- **Conversation context** — prior chat turns within a session, with LLM summarisation
+  compaction and FSRS-6 decay. The agent can reference earlier results.
+- **Run state** — crash recovery checkpoints so interrupted tasks resume from the last step.
+- **Long-term memory** — cross-session facts (domain knowledge, user preferences, patterns)
+  with spaced-repetition decay. The agent gets `remember`, `recall`, `forget`, and `promote`
+  tools, plus an auto-learner that extracts reusable facts after each task.
+
 | Document | Covers |
 |---|---|
 | **[docs/architecture.md](docs/architecture.md)** | Component diagram, layers, data flow, design decisions |
 | [docs/run-loop.md](docs/run-loop.md) | Strategies, budgets, guardrails, `/task` API |
+| [docs/memory.md](docs/memory.md) | Memory system: conversation context, long-term facts, decay, tools, REST API |
 | [docs/jobs.md](docs/jobs.md) | Async jobs: submit, poll, SSE, webhooks, cancellation |
 | [docs/concurrency.md](docs/concurrency.md) | Worker pool, job queue, dispatch config |
 | [docs/mcp-interface.md](docs/mcp-interface.md) | MCP tool catalog, registry contract |
@@ -327,13 +346,13 @@ See [docs/development.md](docs/development.md) for the full setup, testing guide
 See the full **[Roadmap](docs/roadmap.md)** for what's shipped, in progress, and planned.
 
 **Recently shipped:**
+- Three-tier memory system — conversation context, run state, long-term with FSRS-6 decay
 - Strategy auto-router — classifies tasks and routes to the right strategy automatically
 - `npm create` scaffolding CLI — scaffold a new agent project in one command
 - Agent-builder skill (`/agent-builder`) — interview → spec → plan → build
 - Trace IDs and kill switch — end-to-end correlation and emergency write disable
 
-**Next up — Phase 3: Memory + Eval**
-- Three kinds of memory: working context, run state, long-term
+**Next up:**
 - Eval harness: 20-50 real tasks with graded outcomes, runs on every prompt/model change
 
 ---
@@ -360,8 +379,8 @@ and 25 LLM iterations. You can override these per-request or in config. A typica
 travel briefing costs around $0.50-1.00.
 
 **Q: What happens if the agent crashes mid-task?**
-On restart, the in-process job backend fails any `processing` jobs (marks them failed) and
-re-queues any `queued` jobs. Run-state memory for crash resumption is coming in Phase 3.
+With run-state memory enabled, the agent resumes from the last checkpoint on restart. The
+in-process job backend also re-queues any `queued` jobs and fails stale `processing` jobs.
 
 **Q: Can I run multiple agents?**
 Yes. One container runs one agent. Scale horizontally with more containers, each configured

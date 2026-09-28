@@ -20,7 +20,7 @@ function packedFiles() {
 }
 
 test('the package is named so that npm create resolves it', () => {
-  assert.equal(pkg.name, '@dsiddharth2/create-fleet-agent');
+  assert.equal(pkg.name, '@apralabs/create-fleet-agent');
 });
 
 test('the package is publishable', () => {

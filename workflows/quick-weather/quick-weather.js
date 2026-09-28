@@ -44,10 +44,12 @@ export async function main(context) {
 
   phase('compose');
   await reportPhase(`composing weather summary for ${city}`);
+  const memLines = (args.memories ?? []).map(m => `- [${m.kind}] ${m.text}`).join('\n');
   const prompt = [
     `You are a concise travel weather assistant. Given the data below, write a short 3-4 sentence weather summary for ${city}.`,
     `Include current conditions, temperature, and the 3-day outlook. End with one practical tip.`,
     '', `Weather: ${JSON.stringify(weather)}`, `Forecast: ${JSON.stringify(forecast)}`,
+    memLines ? `\nRecalled memories:\n${memLines}` : '',
     '', 'Reply with ONLY the summary text, no preamble.',
   ].join('\n');
   const answer = await agent(prompt, { member_name: 'doer' });
