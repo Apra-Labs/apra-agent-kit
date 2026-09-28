@@ -157,9 +157,16 @@ test('callTool returns error for unknown tool', async () => {
 });
 
 test('startHost returns null memory when memory is not configured', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'host-no-mem-'));
+  await fs.writeFile(path.join(dir, 'host.config.mjs'), `export default {
+    name: 'no-mem-host',
+    fleet: {},
+    comm: { adapter: 'express', host: '127.0.0.1' },
+    modules: {},
+  };`);
   const fleetApi = makeMockFleetApi();
   const dispatcher = await makeDispatcher();
-  const started = await startHost({ fleetApi, dispatcher, port: 0 });
+  const started = await startHost({ fleetApi, dispatcher, port: 0, configDir: dir, env: { ...process.env, NODE_ENV: 'test' } });
   try {
     assert.equal(started.memory, null);
   } finally {

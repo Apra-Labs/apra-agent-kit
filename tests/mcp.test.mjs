@@ -233,6 +233,7 @@ test('advertises exactly the registry tools, with schemas and annotations', asyn
         'timezone',
         'travel-advisory',
         'travel-prep',
+        'trip-planner',
         'weather',
         'wikipedia-summary',
       ],
