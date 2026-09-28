@@ -128,7 +128,7 @@ test('unknown module key logs warning', async (t) => {
   assert.ok(warnings.some(w => /banana/i.test(w)));
 });
 
-test('unimplemented module with enabled:true logs warning', async () => {
+test('evals module accepted when enabled', async () => {
   const dir = await tmpDir();
   await writeConfig(dir, 'host.config.mjs', `export default {
     name: 'x',
@@ -140,11 +140,12 @@ test('unimplemented module with enabled:true logs warning', async () => {
   const origWarn = console.warn;
   console.warn = (msg) => warnings.push(msg);
   try {
-    await loadConfig(dir);
+    const config = await loadConfig(dir);
+    assert.ok(config.modules.evals);
   } finally {
     console.warn = origWarn;
   }
-  assert.ok(warnings.some(w => /evals/i.test(w) && /not implemented/i.test(w)));
+  assert.ok(!warnings.some(w => /evals/i.test(w) && /not implemented/i.test(w)));
 });
 
 test('runLoop module accepted when enabled', async () => {
