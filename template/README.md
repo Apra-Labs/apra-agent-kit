@@ -1,7 +1,7 @@
 # {{PROJECT_NAME}}
 
 An agent built on [Apra Fleet](https://github.com/Apra-Labs/apra-fleet) with the
-[workflow kit](https://github.com/dsiddharth2/workflow-kit).
+[workflow kit](https://github.com/Apra-Labs/apra-agent-kit).
 
 ## Run it
 

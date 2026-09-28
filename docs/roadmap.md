@@ -34,7 +34,7 @@ These are live in the kit today.
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| `npm create` — npm registry publish | Pending | The create CLI works from the GitHub repo (`npx github:dsiddharth2/workflow-kit`). Publish to npm as `@apralabs/create-fleet-agent` so `npm create @apralabs/fleet-agent` works without the GitHub specifier. |
+| `npm create` — npm registry publish | Done | Published as `@apralabs/create-fleet-agent`. Install via `npm create @apralabs/fleet-agent`. |
 
 ## Next Up — Phase 3: Memory + Eval
 

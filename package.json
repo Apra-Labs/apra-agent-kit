@@ -2,6 +2,10 @@
   "name": "@apralabs/create-fleet-agent",
   "version": "0.1.0",
   "description": "Create a Fleet agent project: npm create @apralabs/fleet-agent my-agent",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Apra-Labs/apra-agent-kit.git"
+  },
   "type": "module",
   "main": "comm/azure-functions/main.mjs",
   "bin": {

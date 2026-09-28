@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Ship `npm create @dsiddharth2/fleet-agent my-agent`, replacing the clone-and-delete-`.git` onboarding with one command that emits a named, runnable project.
+**Goal:** Ship `npm create @apralabs/fleet-agent my-agent`, replacing the clone-and-delete-`.git` onboarding with one command that emits a named, runnable project.
 
-**Architecture:** The repository publishes itself as `@dsiddharth2/create-fleet-agent`. npm's `files` field selects which folders enter the tarball; at generate time the CLI copies those folders into the target, then overlays `template/`, which wins on conflict. Two prerequisite refactors land first, because the repo as it stands cannot emit a project that runs.
+**Architecture:** The repository publishes itself as `@apralabs/create-fleet-agent`. npm's `files` field selects which folders enter the tarball; at generate time the CLI copies those folders into the target, then overlays `template/`, which wins on conflict. Two prerequisite refactors land first, because the repo as it stands cannot emit a project that runs.
 
 **Tech Stack:** Node ≥22.16 ESM, `node:test`, `node:util.parseArgs`, `node:readline/promises`. No new runtime dependencies.
 
@@ -1648,7 +1648,7 @@ workdir/*
 # {{PROJECT_NAME}}
 
 An agent built on [Apra Fleet](https://github.com/Apra-Labs/apra-fleet) with the
-[workflow kit](https://github.com/dsiddharth2/workflow-kit).
+[workflow kit](https://github.com/Apra-Labs/apra-agent-kit).
 
 ## Run it
 
@@ -1909,7 +1909,7 @@ Expected: FAIL — `Cannot find module '../bin/create.mjs'`.
 ```js
 #!/usr/bin/env node
 // bin/create.mjs
-// npm create @dsiddharth2/fleet-agent <dir>
+// npm create @apralabs/fleet-agent <dir>
 //
 // Copies the published framework folders into the target, overlays template/,
 // substitutes the project name, then offers to install what is missing. Only a
@@ -2082,7 +2082,7 @@ export async function generate(options, io = { write: console.log }) {
 }
 
 const HELP = `
-  npm create @dsiddharth2/fleet-agent <directory> [options]
+  npm create @apralabs/fleet-agent <directory> [options]
 
   --no-install   copy and substitute only; run no npm, no git, no prompts
   --yes, -y      accept every prompt without asking
@@ -2152,7 +2152,7 @@ bad name aborts; a failed copy removes the partial directory."
 
 ### Task 9: Packaging
 
-Make the repository publishable as `@dsiddharth2/create-fleet-agent`. The `files` field is the manifest — there is no build step.
+Make the repository publishable as `@apralabs/create-fleet-agent`. The `files` field is the manifest — there is no build step.
 
 **Files:**
 - Modify: `package.json`
@@ -2189,7 +2189,7 @@ function packedFiles() {
 }
 
 test('the package is named so that npm create resolves it', () => {
-  assert.equal(pkg.name, '@dsiddharth2/create-fleet-agent');
+  assert.equal(pkg.name, '@apralabs/create-fleet-agent');
 });
 
 test('the package is publishable', () => {
@@ -2262,9 +2262,9 @@ Replace the first block of `package.json` — everything above `"scripts"` — w
 
 ```json
 {
-  "name": "@dsiddharth2/create-fleet-agent",
+  "name": "@apralabs/create-fleet-agent",
   "version": "0.1.0",
-  "description": "Create a Fleet agent project: npm create @dsiddharth2/fleet-agent my-agent",
+  "description": "Create a Fleet agent project: npm create @apralabs/fleet-agent my-agent",
   "type": "module",
   "bin": {
     "create-fleet-agent": "bin/create.mjs"
@@ -2290,7 +2290,7 @@ Replace the first block of `package.json` — everything above `"scripts"` — w
   },
 ```
 
-The repository's package name changes from `workflow-kit` to the publishable name — this is the package that `npm create @dsiddharth2/fleet-agent` resolves. Nothing depends on the old name; it was never published. `"private": true` is removed, and `dependencies` is untouched.
+The repository's package name changes from `workflow-kit` to the publishable name — this is the package that `npm create @apralabs/fleet-agent` resolves. Nothing depends on the old name; it was never published. `"private": true` is removed, and `dependencies` is untouched.
 
 Add the new suites to the `test` script. It currently ends `tests/mcp.test.mjs`; append:
 
@@ -2319,7 +2319,7 @@ Expected: a file list with no `tests/`, `docs/specs/`, `.github/` or demo workfl
 
 ```bash
 git add package.json tests/create-packaging.test.mjs bin/create.mjs
-git commit -m "feat: make the repo publishable as @dsiddharth2/create-fleet-agent
+git commit -m "feat: make the repo publishable as @apralabs/create-fleet-agent
 
 The files field is the manifest — no build step. Tests assert against
 npm pack --dry-run rather than re-implementing npm's rules."
@@ -2530,7 +2530,7 @@ The spec flags this because npm has historically consumed some flags before the 
 
 ```bash
 npm pack
-npm i -g ./dsiddharth2-create-fleet-agent-0.1.0.tgz
+npm i -g ./apralabs-create-fleet-agent-0.1.0.tgz
 cd /tmp && create-fleet-agent flag-check --no-install --yes
 ls /tmp/flag-check && rm -rf /tmp/flag-check
 ```
@@ -2538,7 +2538,7 @@ ls /tmp/flag-check && rm -rf /tmp/flag-check
 Expected: the project is generated, with no `node_modules` and no `.git` — proving `--no-install` arrived. If it did not, the separator form is required:
 
 ```bash
-npm create @dsiddharth2/fleet-agent my-agent -- --no-install
+npm create @apralabs/fleet-agent my-agent -- --no-install
 ```
 
 Record which form works in the spec's open-questions section, and use that form in the README and in CI.
@@ -2568,7 +2568,7 @@ Replace the `## Quick start` block at `README.md:5-30`. The clone instructions b
 ## Quick start
 
 ```bash
-npm create @dsiddharth2/fleet-agent my-agent
+npm create @apralabs/fleet-agent my-agent
 cd my-agent
 ```
 
@@ -2602,7 +2602,7 @@ Run `npm run doctor` in your project at any time to see what is missing.
 Clone this repository instead:
 
 ```bash
-git clone https://github.com/dsiddharth2/workflow-kit.git
+git clone https://github.com/Apra-Labs/apra-agent-kit.git
 cd workflow-kit && npm install
 ```
 ```
@@ -2614,7 +2614,7 @@ Append to `docs/development.md`:
 ```markdown
 ## The create command
 
-`npm create @dsiddharth2/fleet-agent my-agent` generates a project from this
+`npm create @apralabs/fleet-agent my-agent` generates a project from this
 repository. Two rules govern what it emits:
 
 1. **`files` in `package.json` decides what ships.** Anything not listed is
@@ -2658,12 +2658,12 @@ npm pack --dry-run          # confirm the file list one last time
 npm publish --access public # scoped packages are restricted without it
 ```
 
-`--access public` is required: `@dsiddharth2/create-fleet-agent` is a scoped
+`--access public` is required: `@apralabs/create-fleet-agent` is a scoped
 package and scoped packages default to restricted, which would make
-`npm create @dsiddharth2/fleet-agent` fail for everyone but the owner.
+`npm create @apralabs/fleet-agent` fail for everyone but the owner.
 
 Verify from a clean directory:
 
 ```bash
-cd $(mktemp -d) && npm create @dsiddharth2/fleet-agent smoke-test
+cd $(mktemp -d) && npm create @apralabs/fleet-agent smoke-test
 ```
