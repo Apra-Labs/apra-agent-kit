@@ -2,7 +2,7 @@
 
 **Date**: 2026-09-28
 **Status**: Draft
-**Depends on**: conversation context plan (`docs/plans/2026-09-28-conversation-context.md`)
+**Depends on**: conversation context plan (`docs/plans/conversation-context-plan.md`)
 
 ## Problem
 
@@ -388,7 +388,7 @@ This work depends on the conversation context feature landing first because:
 - The interview question needs to offer conversation context as an option
 
 **Sequence:**
-1. Implement conversation context plan (`2026-09-28-conversation-context.md`)
+1. Implement conversation context plan (`conversation-context-plan.md`)
 2. Implement this plan (memory awareness for template + skill)
 
 If conversation context is not yet merged when this work starts, use

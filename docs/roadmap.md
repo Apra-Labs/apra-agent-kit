@@ -23,9 +23,9 @@ These are live in the kit today.
 | 12 Python tools (weather, geocode, currency, forecast, etc.) | Done | — |
 | Communication adapters (Express, raw-http, Azure Functions) | Done | — |
 | Travel agent output quality (prompts + 2 new tools) | Done | [travel-agent-quality-spec](specs/travel-agent-quality-spec.md) |
-| Strategy auto-router | Done | [strategy-router-spec](specs/2026-09-21-strategy-router-spec.md) |
+| Strategy auto-router | Done | [strategy-router-spec](specs/strategy-router-spec.md) |
 | `npm create` scaffolding CLI | Done | [create-command-spec](specs/create-command-spec.md) |
-| Agent-builder skill (`/agent-builder`) | Done | [agent-builder-spec](specs/2026-09-22-agent-builder-skill-spec.md) |
+| Agent-builder skill (`/agent-builder`) | Done | [agent-builder-spec](specs/agent-builder-skill-spec.md) |
 | Trace IDs (end-to-end correlation) | Done | [CONTRACT](CONTRACT.md) |
 | Kill switch (disable all writes without redeploy) | Done | [CONTRACT](CONTRACT.md) |
 | Concurrency acceptance tests | Done | [concurrency](concurrency.md) |

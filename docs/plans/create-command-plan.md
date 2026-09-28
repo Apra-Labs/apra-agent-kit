@@ -8,7 +8,7 @@
 
 **Tech Stack:** Node ≥22.16 ESM, `node:test`, `node:util.parseArgs`, `node:readline/promises`. No new runtime dependencies.
 
-**Spec:** `docs/specs/2026-09-17-create-command-spec.md`
+**Spec:** `docs/specs/create-command-spec.md`
 
 ## Global Constraints
 
@@ -2517,7 +2517,7 @@ that breaks generated projects fails the build before publish."
 The spec's open items are verification, not design. Both are settled here, and the README's opening stops telling people to clone.
 
 **Files:**
-- Modify: `README.md:1-30`, `docs/development.md`, `docs/specs/2026-09-17-create-command-spec.md`
+- Modify: `README.md:1-30`, `docs/development.md`, `docs/specs/create-command-spec.md`
 - Test: manual verification, recorded in the spec
 
 **Interfaces:**
@@ -2639,7 +2639,7 @@ Expected: PASS.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add README.md docs/development.md docs/specs/2026-09-17-create-command-spec.md
+git add README.md docs/development.md docs/specs/create-command-spec.md
 git commit -m "docs: lead with the create command
 
 Quick start is now one command; cloning is documented as the
