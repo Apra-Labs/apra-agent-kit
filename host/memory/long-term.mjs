@@ -71,7 +71,9 @@ export function createLongTermMemory({
         logger.warn?.(`[memory/long-term] maxEntries (${maxEntries}) reached — rejecting new entry`);
         return result;
       }
-      events?.emit('memory:store', { entry: result.entry ?? memEntry, dedupResult: result.action });
+      const stored = result.entry ?? memEntry;
+      logger.info?.(`memory stored [${result.action}] id=${stored.id} kind=${stored.kind} text="${stored.text.slice(0, 80)}"`);
+      events?.emit('memory:store', { entry: stored, dedupResult: result.action });
       return result;
     },
 
@@ -88,6 +90,7 @@ export function createLongTermMemory({
       if (!entry) throw new Error(`memory ${id} not found`);
       const patch = engine.processReview(entry, 3);
       const updated = await store.update(id, patch);
+      logger.info?.(`memory promoted id=${id} stability=${updated.stability?.toFixed(2)} strength=${updated.retrievalStrength?.toFixed(2)}`);
       events?.emit('memory:promote', { id, kind: updated.kind, text: updated.text, newRetrievalStrength: updated.retrievalStrength });
       return updated;
     },
@@ -112,6 +115,7 @@ export function createLongTermMemory({
 
         facts.sort((a, b) => b.retrievalStrength - a.retrievalStrength);
         const result = [...rules, ...facts].slice(0, effectiveLimit);
+        logger.info?.(`memory recall: ${rules.length} rules + ${facts.length} facts = ${result.length} returned`);
         events?.emit('memory:recall', {
           count: result.length,
           facts: result,

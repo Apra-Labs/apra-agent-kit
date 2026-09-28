@@ -51,6 +51,8 @@ export function createRunTaskActivity({ getClient, pollMs = 2000, getContext = g
           routerConfig: hostCtx.routerConfig,
           budgetsConfig: hostCtx.budgetsConfig,
           guardrailsMod: hostCtx.guardrailsMod,
+          memory: hostCtx.memory,
+          logger: hostCtx.logger,
           signal: controller.signal,
           onProgress: (progress) => emit({ type: 'progress', jobId, at: iso(), ...progress }),
         }),
@@ -70,13 +72,21 @@ export function createRunTaskActivity({ getClient, pollMs = 2000, getContext = g
         );
       }
       // Durable Functions caps activity return values at 16 KB (UTF-16).
+      // UTF-16 doubles the byte count, so 16 KB UTF-16 = 8K chars max.
       // The full result is already emitted via SSE (emit) and webhook
       // (notifier) above, so the orchestrator only needs a slim payload.
       const { history, budget, ...trimmed } = settled;
       if (run.routedTo) trimmed.routedTo = run.routedTo;
-      const json = JSON.stringify(trimmed);
-      if (json.length > 12_000 && typeof trimmed.result === 'string') {
-        trimmed.result = trimmed.result.slice(0, 2000) + '\n\n[Full result delivered via SSE]';
+      const MAX_CHARS = 7500;
+      let json = JSON.stringify(trimmed);
+      if (json.length > MAX_CHARS && typeof trimmed.result === 'string') {
+        const overhead = json.length - trimmed.result.length;
+        const room = Math.max(200, MAX_CHARS - overhead - 50);
+        trimmed.result = trimmed.result.slice(0, room) + '\n\n[Full result delivered via SSE]';
+        json = JSON.stringify(trimmed);
+      }
+      if (json.length > MAX_CHARS) {
+        return { status: trimmed.status, routedTo: trimmed.routedTo ?? null, result: '[Full result delivered via SSE]', error: trimmed.error ?? null };
       }
       return trimmed;
     } finally {

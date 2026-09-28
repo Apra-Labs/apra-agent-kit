@@ -18,6 +18,7 @@ import { resolveDispatchConfig, resolveNotifyConfigWithEnv } from './jobs/config
 import { createNotifier } from './notify/index.mjs';
 import { buildRoutes } from './routes.mjs';
 import { buildChatRoutes } from './chat/routes.mjs';
+import { createLogger } from './logger.mjs';
 
 const SUPPORTED_ADAPTERS = {
   'express': () => createExpressAdapter(),
@@ -66,8 +67,10 @@ export async function startHost({
   env = process.env, registry, configDir, authenticate = defaultAuthenticate,
   runLoop: runLoopOption, budgets: budgetsOption, guardrails: guardrailsOption,
   dispatch: dispatchOption, notify: notifyOption, chat: chatOption, durableClient = null, getDurableClient = null,
+  logger: loggerOption,
 } = {}) {
   const config = await loadConfig(configDir ?? defaultConfigDir(), env);
+  const logger = loggerOption ?? createLogger({ prefix: config.name, target: 'stderr' });
 
   if (typeof authenticate === 'function' && authenticate.length >= 3) {
     throw new Error(
@@ -142,13 +145,13 @@ export async function startHost({
   let jobs = null;
   let memory = null;
   const runSync = (task, { signal } = {}) => executeHostedTask(task, {
-    api, activeDispatcher, toolRegistry, runLoopConfig, routerConfig, budgetsConfig, guardrailsMod, jobs, signal, memory,
+    api, activeDispatcher, toolRegistry, runLoopConfig, routerConfig, budgetsConfig, guardrailsMod, jobs, signal, memory, logger,
   });
   // The run loop only observes abort between iterations. A job blocked in
   // executePrompt would otherwise stay `processing` until FORCE_SETTLE (30s).
   const runJob = (task, { signal, onProgress }) => settleWhenAborted(
     executeHostedTask(task, {
-      api, activeDispatcher, toolRegistry, runLoopConfig, routerConfig, budgetsConfig, guardrailsMod, jobs, signal, onProgress, memory,
+      api, activeDispatcher, toolRegistry, runLoopConfig, routerConfig, budgetsConfig, guardrailsMod, jobs, signal, onProgress, memory, logger,
     }),
     signal,
   );
@@ -174,7 +177,7 @@ export async function startHost({
   const memoryConfig = config.modules?.memory;
   if (memoryConfig && memoryConfig.enabled !== false) {
     try {
-      memory = await createMemoryModule(memoryConfig, { notifier, fleetApi: api, logger: console });
+      memory = await createMemoryModule(memoryConfig, { notifier, fleetApi: api, logger: logger.child('memory') });
       await memory.open();
       if (memory?.longTerm) toolRegistry.push(...withMemoryTools([], memory.longTerm, memory.events));
     } catch (err) {
@@ -284,7 +287,7 @@ export async function startHost({
   const effectiveConfig = Object.freeze({ ...config, modules: Object.freeze({ ...config.modules, chat: chatConfig }) });
   return {
     host: adapter, jobs, notifier, memory, callTool, close, stop: close, config: effectiveConfig, registry: toolRegistry,
-    fleetApi: api, dispatcher: activeDispatcher, guardrailsMod, runLoopConfig, budgetsConfig, routerConfig,
+    fleetApi: api, dispatcher: activeDispatcher, guardrailsMod, runLoopConfig, budgetsConfig, routerConfig, logger,
   };
 }
 

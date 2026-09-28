@@ -44,12 +44,26 @@ function parseExtraction(text) {
   }
 }
 
-export function createLearner({ longTermMemory, fleetApi, events = null, logger = console } = {}) {
+export function createLearner({ longTermMemory, fleetApi, events = null, logger = console, maxRetries = 2, retryDelayMs = 3000 } = {}) {
+  async function callWithRetry(prompt) {
+    let lastErr;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        return await fleetApi.executePrompt({ member_name: 'doer', prompt });
+      } catch (err) {
+        lastErr = err;
+        logger.warn?.(`[memory/learner] executePrompt attempt ${attempt + 1} failed: ${err?.message ?? err}`);
+        if (attempt < maxRetries) await new Promise(r => setTimeout(r, retryDelayMs));
+      }
+    }
+    throw lastErr;
+  }
+
   return {
     async extract({ task, history, recalledFacts }) {
       try {
         const prompt = buildPrompt(task, history, recalledFacts);
-        const response = await fleetApi.executePrompt({ member_name: 'doer', prompt });
+        const response = await callWithRetry(prompt);
         const text = typeof response === 'string' ? response : (response?.content ?? []).map(p => p.text ?? '').join('\n');
         const { newFacts, usedRecalledIds } = parseExtraction(text);
 

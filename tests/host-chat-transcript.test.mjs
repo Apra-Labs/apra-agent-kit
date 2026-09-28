@@ -20,7 +20,7 @@ const PLAN = { type: 'plan', _replan: false, plan: { steps: [
 
 test('initialTurn, accepted, queued, started', () => {
   const t0 = initialTurn('weather?');
-  assert.deepEqual(t0, { goal: 'weather?', jobId: null, status: 'submitting', position: null, iteration: 0, plan: null, replans: 0, reviews: [], answer: null, error: null, routedTo: null });
+  assert.deepEqual(t0, { goal: 'weather?', jobId: null, status: 'submitting', position: null, iteration: 0, plan: null, replans: 0, reviews: [], answer: null, error: null, routedTo: null, memoryRecall: null, memoryLearn: null });
   assert.equal(isLive(t0), true);
   const t1 = accepted(t0, { jobId: JOB, position: 2 });
   assert.equal(t1.status, 'queued'); assert.equal(t1.jobId, JOB); assert.equal(t1.position, 2);
@@ -113,4 +113,28 @@ test('submitFailed, cancelling, and malformed events', () => {
   assert.deepEqual(reduce(live, null), live);
   assert.deepEqual(reduce(live, { type: 'progress', kind: 'mystery', iteration: 7 }), { ...live, iteration: 7 });
   assert.deepEqual(reduce(live, { type: 'nonsense' }), live);
+});
+
+test('memory_recall and memory_learn events update turn state', () => {
+  let t = started();
+  assert.equal(t.memoryRecall, null);
+  assert.equal(t.memoryLearn, null);
+
+  const facts = [
+    { id: 'mem-aaa', kind: 'domain', text: 'Goa has monsoon Jun-Sep', tags: ['goa', 'weather'], state: 'active', retrievalStrength: 0.95 },
+    { id: 'mem-bbb', kind: 'preference', text: 'User prefers budget travel', tags: ['budget'], state: 'active', retrievalStrength: 0.8 },
+  ];
+  t = reduce(t, { type: 'progress', kind: 'memory_recall', count: 2, facts });
+  assert.equal(t.memoryRecall.count, 2);
+  assert.equal(t.memoryRecall.facts.length, 2);
+  assert.equal(t.memoryRecall.facts[0].id, 'mem-aaa');
+  assert.equal(t.memoryRecall.facts[1].text, 'User prefers budget travel');
+
+  const newFacts = [
+    { id: 'mem-ccc', kind: 'pattern', text: 'December is peak season in Goa', tags: ['goa'] },
+  ];
+  t = reduce(t, { type: 'progress', kind: 'memory_learn', newFacts, promotedIds: ['mem-aaa'] });
+  assert.equal(t.memoryLearn.newFacts.length, 1);
+  assert.equal(t.memoryLearn.newFacts[0].text, 'December is peak season in Goa');
+  assert.deepEqual(t.memoryLearn.promotedIds, ['mem-aaa']);
 });

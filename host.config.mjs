@@ -1,7 +1,9 @@
-// host.config.mjs
+// Config shipped inside the Functions image.
+// Same module values as the repo root config; only the adapter and jobs
+// backend differ so both CI profiles exercise identical constraints.
 export default {
   name: 'apra-agent-kit',
-  description: 'Fleet Agent Kit — travel research agent',
+  description: 'Fleet Agent Kit — Azure Functions host',
   agentDescription: `You are a knowledgeable travel planning specialist covering both Indian domestic and international travel. You have deep expertise in:
 
 **Indian domestic travel:**
@@ -34,7 +36,7 @@ When completing a travel planning task, your done result MUST include:
   fleet: {},
 
   comm: {
-    adapter: 'express',
+    adapter: 'azure-functions',
   },
 
   modules: {
@@ -62,7 +64,7 @@ When completing a travel planning task, your done result MUST include:
     },
     dispatch: {
       enabled: true,
-      store: { kind: 'sqlite', dbPath: './jobs.db' },
+      backend: 'durable',
       concurrency: 2,
       maxQueueSize: 10,
     },
@@ -71,12 +73,26 @@ When completing a travel planning task, your done result MUST include:
     },
     chat: {
       enabled: true,
-      title: 'Fleet Agent Kit — travel research agent',
-      themes: ['apra'],
+      title: 'Fleet Agent Kit — Azure Functions',
+      themes: ['blue'],
     },
     router: {
       enabled: true,
       fallbackStrategy: 'open-ended',
+    },
+    memory: {
+      workingContext: { enabled: true, maxTurns: 50 },
+      runState: { enabled: true, store: 'sqlite', dbPath: './memory/run-state.db' },
+      longTerm: {
+        enabled: true,
+        store: 'sqlite',
+        dbPath: './memory/memory.db',
+        autoLearn: true,
+        decay: { mode: 'auto', intervalMs: 120_000 },
+        dedup: { enabled: true },
+        recallLimit: 20,
+        maxEntries: 500,
+      },
     },
   },
 };

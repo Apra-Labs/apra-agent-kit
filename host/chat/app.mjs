@@ -415,6 +415,87 @@
 
   // --- Card rendering ---
 
+  // --- Memory panels ---
+
+  function renderMemoryFact(fact, opts) {
+    var row = h('div', 'mem-fact');
+    var kindBadge = h('span', 'mem-kind mem-kind-' + (fact.kind || 'domain'), (fact.kind || 'domain').toUpperCase());
+    row.append(kindBadge);
+    var textEl = h('span', 'mem-text', fact.text);
+    row.append(textEl);
+    if (fact.tags && fact.tags.length > 0) {
+      var tagsEl = h('span', 'mem-tags');
+      for (var t = 0; t < fact.tags.length; t++) {
+        tagsEl.append(h('span', 'mem-tag', fact.tags[t]));
+      }
+      row.append(tagsEl);
+    }
+    if (opts && opts.strength != null) {
+      var str = h('span', 'mem-strength');
+      var pct = Math.round(opts.strength * 100);
+      str.textContent = pct + '%';
+      str.title = 'Retrieval strength';
+      row.append(str);
+    }
+    return row;
+  }
+
+  function renderMemoryRecall(recall) {
+    if (!recall || !recall.facts || recall.facts.length === 0) return null;
+    var panel = h('div', 'mem-panel mem-recall');
+    var hdr = h('div', 'mem-hdr');
+    var icon = h('span', 'mem-icon', '⟵');
+    hdr.append(icon);
+    hdr.append(h('span', 'mem-label', 'RECALLED ' + recall.count + ' MEMORIES'));
+    var toggle = h('span', 'mem-toggle', current.memRecallOpen ? 'HIDE' : 'SHOW');
+    toggle.addEventListener('click', function(e) {
+      e.stopPropagation();
+      current.memRecallOpen = !current.memRecallOpen;
+      renderCard(current.card, current.turn);
+    });
+    hdr.append(toggle);
+    panel.append(hdr);
+    if (current.memRecallOpen) {
+      var list = h('div', 'mem-list');
+      for (var i = 0; i < recall.facts.length; i++) {
+        list.append(renderMemoryFact(recall.facts[i], { strength: recall.facts[i].retrievalStrength }));
+      }
+      panel.append(list);
+    }
+    return panel;
+  }
+
+  function renderMemoryLearn(learn) {
+    if (!learn) return null;
+    var hasNew = learn.newFacts && learn.newFacts.length > 0;
+    var hasPromoted = learn.promotedIds && learn.promotedIds.length > 0;
+    if (!hasNew && !hasPromoted) return null;
+    var panel = h('div', 'mem-panel mem-learn');
+    var hdr = h('div', 'mem-hdr');
+    var icon = h('span', 'mem-icon', '⟶');
+    hdr.append(icon);
+    var parts = [];
+    if (hasNew) parts.push(learn.newFacts.length + ' NEW');
+    if (hasPromoted) parts.push(learn.promotedIds.length + ' REINFORCED');
+    hdr.append(h('span', 'mem-label', 'LEARNED · ' + parts.join(' · ')));
+    var toggle = h('span', 'mem-toggle', current.memLearnOpen ? 'HIDE' : 'SHOW');
+    toggle.addEventListener('click', function(e) {
+      e.stopPropagation();
+      current.memLearnOpen = !current.memLearnOpen;
+      renderCard(current.card, current.turn);
+    });
+    hdr.append(toggle);
+    panel.append(hdr);
+    if (current.memLearnOpen && hasNew) {
+      var list = h('div', 'mem-list');
+      for (var i = 0; i < learn.newFacts.length; i++) {
+        list.append(renderMemoryFact(learn.newFacts[i], {}));
+      }
+      panel.append(list);
+    }
+    return panel;
+  }
+
   function renderCard(card, turn) {
     card.replaceChildren();
     var img = h('img', 'bot-mark');
@@ -425,12 +506,20 @@
 
     var body = h('div', 'bot-body');
 
+    // Memory recall (before pipeline)
+    var recallPanel = renderMemoryRecall(turn.memoryRecall);
+    if (recallPanel) body.append(recallPanel);
+
     // Status pipeline + plan
     body.append(renderStatusPipeline(turn));
 
     if (turn.plan) {
       body.append(renderPlan(turn));
     }
+
+    // Memory learn (after plan, before answer)
+    var learnPanel = renderMemoryLearn(turn.memoryLearn);
+    if (learnPanel) body.append(learnPanel);
 
     // Answer
     if (turn.status === 'completed' && turn.answer != null) {
@@ -494,7 +583,7 @@
     // Bot card
     var card = h('div', 'bot-msg');
     transcriptEl.append(card);
-    current = { turn: initialTurn(goal), card: card, source: null, grouped: false, planOpen: true, openStep: null };
+    current = { turn: initialTurn(goal), card: card, source: null, grouped: false, planOpen: true, openStep: null, memRecallOpen: false, memLearnOpen: false };
     renderCard(card, current.turn);
     updateComposer(true);
 

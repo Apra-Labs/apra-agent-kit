@@ -74,11 +74,25 @@ When completing a travel planning task, your done result MUST include:
     chat: {
       enabled: true,
       title: 'Fleet Agent Kit — Azure Functions',
-      themes: ['apra'],
+      themes: ['blue'],
     },
     router: {
       enabled: true,
       fallbackStrategy: 'open-ended',
+    },
+    memory: {
+      workingContext: { enabled: true, maxTurns: 50 },
+      runState: { enabled: true, store: 'sqlite', dbPath: './memory/run-state.db' },
+      longTerm: {
+        enabled: true,
+        store: 'sqlite',
+        dbPath: './memory/memory.db',
+        autoLearn: true,
+        decay: { mode: 'auto', intervalMs: 120_000 },
+        dedup: { enabled: true },
+        recallLimit: 20,
+        maxEntries: 500,
+      },
     },
   },
 };

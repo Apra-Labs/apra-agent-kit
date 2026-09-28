@@ -7,7 +7,7 @@
 const TERMINAL = new Set(['completed', 'failed', 'cancelled', 'budget_exceeded']);
 
 export function initialTurn(goal) {
-  return { goal, jobId: null, status: 'submitting', position: null, iteration: 0, plan: null, replans: 0, reviews: [], answer: null, error: null, routedTo: null };
+  return { goal, jobId: null, status: 'submitting', position: null, iteration: 0, plan: null, replans: 0, reviews: [], answer: null, error: null, routedTo: null, memoryRecall: null, memoryLearn: null };
 }
 
 export function isLive(turn) {
@@ -96,6 +96,10 @@ function reduceProgress(turn, event) {
       return { ...next, reviews: [...turn.reviews, { reviewType: event.reviewType ?? 'plan', approved: !!event.approved, feedback: event.feedback ?? null }] };
     case 'routed':
       return { ...next, routedTo: event.routedTo ?? null };
+    case 'memory_recall':
+      return { ...next, memoryRecall: { count: event.count ?? 0, facts: event.facts ?? [] } };
+    case 'memory_learn':
+      return { ...next, memoryLearn: { newFacts: event.newFacts ?? [], promotedIds: event.promotedIds ?? [] } };
     default:
       return next;
   }

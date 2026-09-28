@@ -5,7 +5,7 @@ import { classify, executeWorkflow } from './router.mjs';
 import { runTask } from './run-loop.mjs';
 import { createBudgets } from './budgets.mjs';
 
-export const PROGRESS_TYPES = new Set(['plan', 'action', 'observation', 'review', 'step_review', 'step_started', 'step_failed']);
+export const PROGRESS_TYPES = new Set(['plan', 'action', 'observation', 'review', 'step_review', 'step_started', 'step_failed', 'memory_recall', 'memory_learn']);
 
 export function describeEvent(event) {
   switch (event.kind ?? event.type) {
@@ -147,7 +147,7 @@ function extractTaskTags(task) {
 
 export async function executeHostedTask(task, {
   api, activeDispatcher, toolRegistry, runLoopConfig, routerConfig,
-  budgetsConfig, guardrailsMod, jobs, signal, onProgress, memory,
+  budgetsConfig, guardrailsMod, jobs, signal, onProgress, memory, logger = console,
 }) {
   const fullTask = { id: task.id ?? `t-${Date.now().toString(36)}`, ...task };
   // Accept a caller-supplied trace id so a run can be correlated with the
@@ -243,10 +243,21 @@ export async function executeHostedTask(task, {
     if (memory?.longTerm) {
       try {
         const tags = extractTaskTags(task);
+        logger.info?.(`memory recall tags=${JSON.stringify(tags)}`);
         const recalled = await memory.longTerm.recall({ tags, taskId: fullTask.id });
         memories = Array.isArray(recalled) ? recalled : [];
+        logger.info?.(`memory recalled ${memories.length} facts`);
+        if (onProgress && memories.length > 0) {
+          try {
+            await onProgress({
+              kind: 'memory_recall',
+              count: memories.length,
+              facts: memories.map(m => ({ id: m.id, kind: m.kind, text: m.text, tags: m.tags, state: m.state, retrievalStrength: m.retrievalStrength })),
+            });
+          } catch { /* progress is best-effort */ }
+        }
       } catch (err) {
-        console.warn(`[host] memory recall failed — continuing: ${err?.message ?? err}`);
+        logger.warn?.(`memory recall failed — continuing: ${err?.message ?? err}`);
         memories = [];
       }
     }
@@ -268,20 +279,32 @@ export async function executeHostedTask(task, {
     });
     if (memory?.learner) {
       try {
-        await memory.learner.extract({
+        const learned = await memory.learner.extract({
           task: fullTask,
           history: result.observations ?? result.history ?? [],
           recalledFacts: memories,
         });
+        if (onProgress && (learned.newFacts?.length || learned.promotedIds?.length)) {
+          try {
+            await onProgress({
+              kind: 'memory_learn',
+              newFacts: (learned.newFacts ?? []).map(r => {
+                const e = r.entry ?? r;
+                return { id: e.id, kind: e.kind, text: e.text, tags: e.tags };
+              }),
+              promotedIds: learned.promotedIds ?? [],
+            });
+          } catch { /* progress is best-effort */ }
+        }
       } catch (err) {
-        console.warn(`[host] memory learner failed — continuing: ${err?.message ?? err}`);
+        logger.warn?.(`memory learner failed: ${err?.message ?? err}`);
       }
     }
     if (memory?.runState) {
       try {
         await memory.runState.clear(fullTask.id ?? task.id ?? task.goal);
       } catch (err) {
-        console.warn(`[host] memory run-state clear failed — continuing: ${err?.message ?? err}`);
+        logger.warn?.(`memory run-state clear failed: ${err?.message ?? err}`);
       }
     }
     return { taskId: fullTask.id, traceId, routedTo, ...result };
