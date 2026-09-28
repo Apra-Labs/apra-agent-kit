@@ -187,8 +187,9 @@ test('runner: modules.evals defaults apply and explicit options win', async () =
     assert.equal(fromConfig.results.length, 2);
     assert.equal(fromConfig.summary.passed, 2);
     const written = await fs.readdir(reportDir);
-    assert.equal(written.length, 1);
-    assert.match(written[0], /^simple-/);
+    assert.equal(written.length, 2);
+    assert.ok(written.some(f => f.endsWith('.json') && f.startsWith('simple-')));
+    assert.ok(written.some(f => f.endsWith('.md') && f.startsWith('simple-')));
 
     const overridden = await runSuite('simple', {
       configDir: overrideConfigDir,

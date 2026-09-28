@@ -1,0 +1,192 @@
+{
+  "suite": "travel-agent-live",
+  "description": "Live travel agent eval — real LLM calls, non-deterministic. Run on-demand, not in CI.",
+  "fleet": "live",
+  "defaults": {
+    "timeout": 120000
+  },
+  "cases": [
+    {
+      "id": "live-001",
+      "description": "City briefing — quick single-city task",
+      "tags": ["live", "open-ended", "smoke"],
+      "task": {
+        "goal": "City briefing for Tokyo"
+      },
+      "scorers": [
+        {
+          "name": "completes",
+          "grader": "exact-match",
+          "expected": { "status": "completed" }
+        },
+        {
+          "name": "content",
+          "grader": "contains",
+          "substrings": ["Tokyo"]
+        },
+        {
+          "name": "efficiency",
+          "grader": "budget-check",
+          "maxCost": 1.00,
+          "maxIterations": 15
+        }
+      ]
+    },
+    {
+      "id": "live-002",
+      "description": "Pre-trip prep — multi-tool open-ended task",
+      "tags": ["live", "open-ended"],
+      "task": {
+        "goal": "Pre-trip preparation for Japan"
+      },
+      "scorers": [
+        {
+          "name": "completes",
+          "grader": "exact-match",
+          "expected": { "status": "completed" }
+        },
+        {
+          "name": "content",
+          "grader": "contains",
+          "substrings": ["Japan"]
+        },
+        {
+          "name": "quality",
+          "grader": "llm-judge",
+          "rubric": "The response should cover at least 3 of: visa/entry requirements, currency info, cultural tips, safety/travel advisory, public holidays. It should be practical and specific to Japan, not generic travel advice.",
+          "scoreScale": 5
+        },
+        {
+          "name": "efficiency",
+          "grader": "budget-check",
+          "maxCost": 2.00,
+          "maxIterations": 20
+        }
+      ]
+    },
+    {
+      "id": "live-003",
+      "description": "Route check — geographic tool usage",
+      "tags": ["live", "open-ended"],
+      "task": {
+        "goal": "Driving route from Delhi to Manali"
+      },
+      "scorers": [
+        {
+          "name": "completes",
+          "grader": "exact-match",
+          "expected": { "status": "completed" }
+        },
+        {
+          "name": "content",
+          "grader": "contains",
+          "substrings": ["Delhi", "Manali", "km"]
+        },
+        {
+          "name": "efficiency",
+          "grader": "budget-check",
+          "maxCost": 1.00,
+          "maxIterations": 15
+        }
+      ]
+    },
+    {
+      "id": "live-004",
+      "description": "Full trip plan — end-to-end planning with itinerary",
+      "tags": ["live", "plan-execute", "full"],
+      "task": {
+        "goal": "Plan a 3-day trip to Manali from Delhi"
+      },
+      "timeout": 300000,
+      "scorers": [
+        {
+          "name": "completes",
+          "grader": "exact-match",
+          "expected": { "status": "completed" }
+        },
+        {
+          "name": "content",
+          "grader": "contains",
+          "substrings": ["Manali", "Day 1"]
+        },
+        {
+          "name": "quality",
+          "grader": "llm-judge",
+          "rubric": "The response should be a day-by-day trip plan for Manali that includes: specific activities per day, accommodation suggestions, budget estimates, and practical tips. It should reference real places in Manali (e.g. Hadimba Temple, Solang Valley, Rohtang Pass, Old Manali). The plan must cover exactly 3 days.",
+          "scoreScale": 5
+        },
+        {
+          "name": "efficiency",
+          "grader": "budget-check",
+          "maxCost": 5.00,
+          "maxIterations": 25
+        }
+      ]
+    },
+    {
+      "id": "live-005",
+      "description": "International trip — tests broader tool coverage",
+      "tags": ["live", "plan-execute", "full"],
+      "task": {
+        "goal": "Plan a 5-day trip to Paris from Mumbai"
+      },
+      "timeout": 300000,
+      "scorers": [
+        {
+          "name": "completes",
+          "grader": "exact-match",
+          "expected": { "status": "completed" }
+        },
+        {
+          "name": "content",
+          "grader": "contains",
+          "substrings": ["Paris"]
+        },
+        {
+          "name": "quality",
+          "grader": "llm-judge",
+          "rubric": "The response should be a multi-day Paris trip plan covering: visa/entry requirements for Indian passport holders, EUR budget estimates with INR equivalents, specific Parisian landmarks and activities, transport options, and at least basic cultural tips. Must cover 5 days.",
+          "scoreScale": 5
+        },
+        {
+          "name": "efficiency",
+          "grader": "budget-check",
+          "maxCost": 5.00,
+          "maxIterations": 25
+        }
+      ]
+    },
+    {
+      "id": "live-006",
+      "description": "Ambiguous request — tests router and agent adaptability",
+      "tags": ["live", "open-ended", "edge"],
+      "task": {
+        "goal": "What's the weather like in Shimla right now?"
+      },
+      "scorers": [
+        {
+          "name": "completes",
+          "grader": "exact-match",
+          "expected": { "status": "completed" }
+        },
+        {
+          "name": "content",
+          "grader": "contains",
+          "substrings": ["Shimla"]
+        },
+        {
+          "name": "has-weather",
+          "grader": "pattern",
+          "pattern": "\\d+.*[°CcFf]|temperature|weather",
+          "flags": "i"
+        },
+        {
+          "name": "efficiency",
+          "grader": "budget-check",
+          "maxCost": 0.50,
+          "maxIterations": 10
+        }
+      ]
+    }
+  ]
+}

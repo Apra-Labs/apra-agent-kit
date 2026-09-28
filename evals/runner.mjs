@@ -92,8 +92,6 @@ async function runCase(testCase, suite, { configDir, parallel }) {
       await dispatcher.close();
     }
   } catch (err) {
-    // A throw is not a gradeable actual. Synthetic { status: 'failed', budget: null }
-    // still passes exact-match (expected status failed) and budget-check (null budget).
     const errorScores = {};
     for (const s of testCase.scorers) {
       errorScores[s.name] = { pass: false, score: 0, grader: s.grader, reason: `task error: ${err.message}` };
@@ -102,11 +100,9 @@ async function runCase(testCase, suite, { configDir, parallel }) {
       id: testCase.id, description: testCase.description ?? '', tags: testCase.tags ?? [],
       status: 'failed', durationMs: Date.now() - start, cost: 0, scores: errorScores,
     };
-  } finally {
-    if (caseWorkdir) await fs.rm(caseWorkdir, { recursive: true, force: true }).catch(() => {});
-    await fleet.stop?.();
   }
 
+  // Grade while the fleet is still alive (llm-judge needs executePrompt).
   const scores = {};
   for (const scorer of testCase.scorers) {
     const scorerInput = {
@@ -123,6 +119,9 @@ async function runCase(testCase, suite, { configDir, parallel }) {
       scores[scorer.name] = { pass: false, score: 0, grader: scorer.grader, reason: `grader error: ${err.message}` };
     }
   }
+
+  if (caseWorkdir) await fs.rm(caseWorkdir, { recursive: true, force: true }).catch(() => {});
+  await fleet.stop?.();
 
   return {
     id: testCase.id, description: testCase.description ?? '', tags: testCase.tags ?? [],
@@ -146,6 +145,101 @@ function buildSummary(results) {
     }
   }
   return { total: results.length, passed, failed, cost: Math.round(cost * 1000) / 1000, wallMs, byTag };
+}
+
+function buildMarkdownReport(report) {
+  const { suite, timestamp, fleet, results, summary } = report;
+  const lines = [];
+  const passRate = summary.total > 0 ? Math.round(summary.passed / summary.total * 100) : 0;
+  const status = summary.failed === 0 ? 'PASSED' : 'FAILED';
+
+  lines.push(`# Eval Report: ${suite}`);
+  lines.push('');
+  lines.push(`**${status}** | ${timestamp} | fleet: \`${fleet}\``);
+  lines.push('');
+
+  // Summary
+  lines.push('## Summary');
+  lines.push('');
+  lines.push(`| Metric | Value |`);
+  lines.push(`|--------|-------|`);
+  lines.push(`| Cases | ${summary.total} |`);
+  lines.push(`| Passed | ${summary.passed} |`);
+  lines.push(`| Failed | ${summary.failed} |`);
+  lines.push(`| Pass rate | ${passRate}% |`);
+  lines.push(`| Total cost | $${summary.cost.toFixed(3)} |`);
+  lines.push(`| Wall time | ${(summary.wallMs / 1000).toFixed(1)}s |`);
+  lines.push('');
+
+  // Results table
+  lines.push('## Results');
+  lines.push('');
+
+  const allScorerNames = [...new Set(results.flatMap(r => Object.keys(r.scores)))];
+  const header = ['Case', 'Description', 'Status', ...allScorerNames, 'Time', 'Cost'];
+  lines.push(`| ${header.join(' | ')} |`);
+  lines.push(`| ${header.map(() => '---').join(' | ')} |`);
+
+  for (const r of results) {
+    const allPass = Object.values(r.scores).every(s => s.pass);
+    const icon = allPass ? 'PASS' : 'FAIL';
+    const scorerCells = allScorerNames.map(name => {
+      const s = r.scores[name];
+      if (!s) return '-';
+      return s.pass ? 'pass' : 'FAIL';
+    });
+    const time = (r.durationMs / 1000).toFixed(1) + 's';
+    const cost = r.cost > 0 ? `$${r.cost.toFixed(3)}` : '-';
+    lines.push(`| ${r.id} | ${r.description} | ${icon} | ${scorerCells.join(' | ')} | ${time} | ${cost} |`);
+  }
+  lines.push('');
+
+  // Failures detail
+  const failures = results.filter(r => !Object.values(r.scores).every(s => s.pass));
+  if (failures.length > 0) {
+    lines.push('## Failures');
+    lines.push('');
+    for (const r of failures) {
+      lines.push(`### ${r.id}: ${r.description}`);
+      lines.push('');
+      for (const [name, s] of Object.entries(r.scores)) {
+        if (!s.pass) {
+          lines.push(`- **${name}** (${s.grader}): ${s.reason}`);
+        }
+      }
+      lines.push('');
+    }
+  }
+
+  // Tag breakdown
+  if (Object.keys(summary.byTag).length > 0) {
+    lines.push('## By Tag');
+    lines.push('');
+    lines.push('| Tag | Passed | Total | Rate |');
+    lines.push('| --- | --- | --- | --- |');
+    for (const [tag, data] of Object.entries(summary.byTag)) {
+      const pct = data.total > 0 ? Math.round(data.passed / data.total * 100) : 0;
+      lines.push(`| ${tag} | ${data.passed} | ${data.total} | ${pct}% |`);
+    }
+    lines.push('');
+  }
+
+  // Scorer detail
+  lines.push('## Scorer Details');
+  lines.push('');
+  for (const r of results) {
+    lines.push(`### ${r.id}: ${r.description}`);
+    lines.push('');
+    lines.push('| Scorer | Grader | Pass | Score | Reason |');
+    lines.push('| --- | --- | --- | --- | --- |');
+    for (const [name, s] of Object.entries(r.scores)) {
+      const score = typeof s.score === 'number' ? s.score.toFixed(2) : '-';
+      lines.push(`| ${name} | ${s.grader} | ${s.pass ? 'yes' : 'no'} | ${score} | ${s.reason ?? '-'} |`);
+    }
+    lines.push('');
+  }
+
+  return lines.join('\n');
 }
 
 async function readEvalsConfig(configDir) {
@@ -227,8 +321,9 @@ export async function runSuite(suiteName, options = {}) {
 
   if (effectiveReportDir) {
     await fs.mkdir(effectiveReportDir, { recursive: true });
-    const filename = `${suite.suite}-${report.timestamp.replace(/[:.]/g, '-')}.json`;
-    await fs.writeFile(path.join(effectiveReportDir, filename), JSON.stringify(report, null, 2));
+    const stem = `${suite.suite}-${report.timestamp.replace(/[:.]/g, '-')}`;
+    await fs.writeFile(path.join(effectiveReportDir, `${stem}.json`), JSON.stringify(report, null, 2));
+    await fs.writeFile(path.join(effectiveReportDir, `${stem}.md`), buildMarkdownReport(report));
   }
 
   return report;

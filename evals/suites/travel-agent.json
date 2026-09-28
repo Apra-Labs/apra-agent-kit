@@ -37,7 +37,10 @@
               "tool": "weather"
             },
             {
-              "tool": "destination-overview"
+              "tool": "wikipedia-summary"
+            },
+            {
+              "tool": "places-of-interest"
             }
           ]
         },
