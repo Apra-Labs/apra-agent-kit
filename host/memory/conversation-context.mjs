@@ -87,8 +87,6 @@ export function createConversationContext({
       const turnIndex = existing.length;
 
       const fields = {
-        sessionId,
-        turnIndex,
         goal,
         answer: truncate(answer, answerMaxChars),
         status: status ?? 'completed',
@@ -104,15 +102,21 @@ export function createConversationContext({
       if (maxTotalTurns && existing.length >= maxTotalTurns) {
         // Cap reached: recycle the weakest/oldest turn's row instead of appending
         // a new one, so the total turn count for the session never exceeds
-        // maxTotalTurns.
+        // maxTotalTurns. store.update() only persists goal/answer/status/
+        // retrievalStrength/stability/state/lastPromotedAt/summary — it does
+        // NOT persist turnIndex or sessionId — so those are intentionally left
+        // out of the patch, and the tie-break below uses lastPromotedAt (which
+        // IS persisted and is set fresh on every recordTurn call) instead of
+        // turnIndex (which would stay frozen at its original value and always
+        // pick the same row, silently dropping turns and corrupting order).
         const sorted = [...existing].sort(
-          (a, b) => (a.retrievalStrength - b.retrievalStrength) || (a.turnIndex - b.turnIndex)
+          (a, b) => (a.retrievalStrength - b.retrievalStrength) || (new Date(a.lastPromotedAt) - new Date(b.lastPromotedAt))
         );
         const oldest = sorted[0];
         await store.update(oldest.id, fields);
-        turn = { id: oldest.id, ...fields };
+        turn = { id: oldest.id, sessionId, turnIndex: oldest.turnIndex, ...fields };
       } else {
-        turn = { id: `ct-${randomUUID().slice(0, 12)}`, ...fields };
+        turn = { id: `ct-${randomUUID().slice(0, 12)}`, sessionId, turnIndex, ...fields };
         await store.append(turn);
       }
 
