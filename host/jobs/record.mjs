@@ -33,6 +33,8 @@ export function createRecord(task, { id = newJobId(), callbackUrl = null, metada
       inputs: task.inputs ?? {},
       constraints: task.constraints ?? {},
       budget: task.budget ?? {},
+      ...(task.sessionId ? { sessionId: task.sessionId } : {}),
+      ...(task.conversation ? { conversation: task.conversation } : {}),
     },
     submittedAt: iso(now),
     startedAt: null,

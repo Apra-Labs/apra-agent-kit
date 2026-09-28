@@ -1,10 +1,12 @@
 const NOTIFICATION_EVENTS = new Set([
   'memory:recall', 'memory:store', 'memory:learn', 'memory:error',
+  'memory:conversation:store', 'memory:conversation:recall',
 ]);
 
 const FULL_EVENTS = new Set([
   ...NOTIFICATION_EVENTS,
   'memory:recall:tool', 'memory:promote', 'memory:decay',
+  'memory:conversation:compact',
 ]);
 
 export function createMemoryEvents({ notifier, level = 'notifications' } = {}) {

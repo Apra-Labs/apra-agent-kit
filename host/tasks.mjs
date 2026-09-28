@@ -320,11 +320,12 @@ export async function executeHostedTask(task, {
         const answerText = typeof result.result === 'string'
           ? result.result
           : JSON.stringify(result.result ?? null);
-        await cc.recordTurn(task.sessionId, {
+        const turn = await cc.recordTurn(task.sessionId, {
           goal: task.goal,
           answer: answerText,
           status: result.status,
         });
+        logger.info?.(`conversation turn recorded: ${turn?.id} for session ${task.sessionId}`);
       } catch (err) {
         logger.warn?.(`conversation turn record failed: ${err?.message ?? err}`);
       }
