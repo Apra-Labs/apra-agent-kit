@@ -26,6 +26,7 @@ export const PUBLISHED_DIRS = [
   'docs/getting-started.md',
   'docs/memory.md',
   '.dockerignore',
+  'evals',
 ];
 
 export function copyTree(src, dest, { overwrite = false, rename = {} } = {}) {

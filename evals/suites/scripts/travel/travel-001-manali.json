@@ -1,0 +1,37 @@
+{
+  "goals": {
+    "Plan a 3-day trip to Manali": [
+      "```plan\n{\"steps\":[{\"type\":\"tool\",\"tool\":\"weather\",\"args\":{\"city\":\"Manali\"},\"reason\":\"check current weather\",\"review\":false},{\"type\":\"tool\",\"tool\":\"wikipedia-summary\",\"args\":{\"topic\":\"Manali\"},\"reason\":\"get background info on Manali\",\"review\":false},{\"type\":\"tool\",\"tool\":\"places-of-interest\",\"args\":{\"location\":\"Manali\"},\"reason\":\"get tourist attractions and activities\",\"review\":false},{\"type\":\"reason\",\"prompt\":\"compile day-by-day itinerary from weather, background, and attractions data\",\"reason\":\"create the final trip plan\",\"review\":false}]}\n```",
+      "```review\n{\"approved\":true}\n```",
+      "Based on the data collected:\n- Weather: 12°C, partly cloudy — good for sightseeing\n- Key attractions: Hadimba Temple, Solang Valley, Rohtang Pass, Old Manali, Naggar Castle\n\nDay 1: Arrive Manali, visit Hadimba Temple, explore Old Manali\nDay 2: Solang Valley for adventure activities, Rohtang Pass viewpoint\nDay 3: Naggar Castle, hot springs, depart\n\nBudget estimate: INR 8,000-12,000 per day including accommodation, meals, and activities.",
+      "```done\n{\"result\":\"3-Day Manali Itinerary\\nDay 1: Arrive Manali, visit Hadimba Temple, Old Manali\\nDay 2: Solang Valley, paragliding, Rohtang Pass viewpoint\\nDay 3: Naggar Castle, hot springs, depart\\nBudget: INR 8,000-12,000/day\\nWeather: 12°C, partly cloudy\",\"summary\":\"Planned 3-day Manali trip\"}\n```"
+    ]
+  },
+  "tools": {
+    "weather": {
+      "ok": true,
+      "city": "Manali",
+      "temperature": "12°C",
+      "humidity": "65%",
+      "wind": "8 km/h",
+      "description": "Partly cloudy"
+    },
+    "wikipedia_summary": {
+      "ok": true,
+      "title": "Manali, Himachal Pradesh",
+      "description": "Hill station in Himachal Pradesh, India",
+      "extract": "Manali is a high-altitude Himalayan resort town in India's northern Himachal Pradesh state. It has a reputation as a backpacking center and honeymoon destination. Set on the Beas River, it is a gateway for skiing in the Solang Valley and trekking in the Parvati Valley."
+    },
+    "places_of_interest": {
+      "ok": true,
+      "location": "Manali",
+      "results": [
+        {"title": "Hadimba Temple", "extract": "Ancient cave temple surrounded by cedar forest"},
+        {"title": "Solang Valley", "extract": "Adventure sports hub offering paragliding, skiing, and zorbing"},
+        {"title": "Rohtang Pass", "extract": "High mountain pass at 3,978m with panoramic views"},
+        {"title": "Old Manali", "extract": "Bohemian village with cafes, shops, and Manu Temple"},
+        {"title": "Naggar Castle", "extract": "Medieval castle with art gallery and mountain views"}
+      ]
+    }
+  }
+}

@@ -25,3 +25,4 @@ memory/*.db-shm
 memory/*.db-wal
 logs/
 .token
+evals/reports/
