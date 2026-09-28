@@ -19,6 +19,7 @@
     "tools/textstats",
     "docs/architecture.md",
     "docs/development.md",
+    "docs/getting-started.md",
     "template",
     "bin",
     "create",
