@@ -291,7 +291,7 @@ server is reachable from the host.
 
 ## The create command
 
-`npm create @dsiddharth2/fleet-agent my-agent` generates a project from this
+`npm create @apralabs/fleet-agent my-agent` generates a project from this
 repository. Two rules govern what it emits:
 
 1. **`files` in `package.json` decides what ships.** Anything not listed is

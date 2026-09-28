@@ -1,7 +1,7 @@
 {
-  "name": "@dsiddharth2/create-fleet-agent",
+  "name": "@apralabs/create-fleet-agent",
   "version": "0.1.0",
-  "description": "Create a Fleet agent project: npm create @dsiddharth2/fleet-agent my-agent",
+  "description": "Create a Fleet agent project: npm create @apralabs/fleet-agent my-agent",
   "type": "module",
   "main": "comm/azure-functions/main.mjs",
   "bin": {
