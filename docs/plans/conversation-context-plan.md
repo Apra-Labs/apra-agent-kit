@@ -8,7 +8,7 @@
 
 **Tech Stack:** Node.js (ESM), `node:sqlite` (`DatabaseSync`), `node:crypto`, `node:test` + `assert/strict`
 
-**Spec:** `docs/specs/2026-09-28-conversation-context-spec.md`
+**Spec:** `docs/specs/conversation-context-spec.md`
 
 ## Global Constraints
 
@@ -1234,7 +1234,7 @@ git commit -m "chore: update deploy config and gitignore for conversation store"
 
 ---
 
-Plan complete and saved to `docs/plans/2026-09-28-conversation-context.md`. Please review the plan. Which execution approach would you prefer?
+Plan complete and saved to `docs/plans/conversation-context-plan.md`. Please review the plan. Which execution approach would you prefer?
 
 - **Subagent-driven** — A fresh subagent implements each task and a fresh reviewer checks it before the next one starts, then a whole-branch review at the end. Most thorough; costs a fresh context per task and per review.
 - **Native** — I implement every task myself in this session, the way this harness runs work, then one fresh reviewer on the most capable model checks the whole branch. Cheapest and fastest; no independent review until the end.

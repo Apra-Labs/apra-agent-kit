@@ -8,7 +8,7 @@
 
 **Tech Stack:** Node.js (ESM, >=22.16), `node:test` for testing, Fleet MCP API, existing workflow engine (`@apralabs/apra-fleet-workflow`)
 
-**Spec:** `docs/specs/2026-09-21-strategy-router-spec.md`
+**Spec:** `docs/specs/strategy-router-spec.md`
 
 ## Global Constraints
 

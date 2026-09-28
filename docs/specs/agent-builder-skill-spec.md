@@ -3,8 +3,8 @@
 **Date**: 2026-09-22
 **Status**: Proposed
 **Scope**: New Claude skill shipping with the Kit — interview, spec generation, implementation plan handoff
-**Issue**: [#53](https://github.com/dsiddharth2/apra-agent-kit/issues/53)
-**Depends on**: [#29](https://github.com/dsiddharth2/apra-agent-kit/pull/29) (`npm create @dsiddharth2/fleet-agent`)
+**Issue**: [#53](https://github.com/Apra-Labs/apra-agent-kit/issues/53)
+**Depends on**: [#29](https://github.com/Apra-Labs/apra-agent-kit/pull/29) (`npm create @dsiddharth2/fleet-agent`)
 
 ## Problem
 
@@ -278,8 +278,8 @@ Plan written to `docs/plans/<date>-<agent-name>.md`.
 The skill prints a summary and presents execution options:
 
 ```
-✓ Spec:  docs/specs/2026-09-22-<name>-spec.md
-✓ Plan:  docs/plans/2026-09-22-<name>.md
+✓ Spec:  docs/specs/<name>-spec.md
+✓ Plan:  docs/plans/<name>-plan.md
 
 Your agent has N workflows, M tools, and K tasks in the plan.
 

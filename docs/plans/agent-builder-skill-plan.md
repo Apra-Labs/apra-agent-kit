@@ -8,8 +8,8 @@
 
 **Tech Stack:** Claude Code skill system (SKILL.md + references/), Node.js (for `npm create` scaffolding), `apra-fleet` CLI (for status/doctor checks).
 
-**Spec:** `docs/specs/2026-09-22-agent-builder-skill-spec.md`
-**Issue:** [#53](https://github.com/dsiddharth2/apra-agent-kit/issues/53)
+**Spec:** `docs/specs/agent-builder-skill-spec.md`
+**Issue:** [#53](https://github.com/Apra-Labs/apra-agent-kit/issues/53)
 
 ---
 
@@ -782,7 +782,7 @@ list to include `.claude`.
 If PR #29 hasn't landed, create a GitHub issue:
 
 ```bash
-gh issue create --repo dsiddharth2/apra-agent-kit \
+gh issue create --repo Apra-Labs/apra-agent-kit \
   --title "feat: include agent-builder skill in npm create template" \
   --label "enhancement" \
   --body "After PR #29 merges, add the agent-builder skill (.claude/skills/agent-builder/) to the template/ directory so scaffolded projects include it. See #53."
@@ -868,7 +868,7 @@ git commit -m "fix(agent-builder): address smoke test findings"
 - [ ] **Step 1: Update the issue body**
 
 ```bash
-gh issue edit 53 --repo dsiddharth2/apra-agent-kit --body "$(cat <<'EOF'
+gh issue edit 53 --repo Apra-Labs/apra-agent-kit --body "$(cat <<'EOF'
 ## Summary
 
 A Claude skill that ships with the Kit and guides any developer through building
@@ -879,8 +879,8 @@ a complete working agent — not just config — in 1-2 days.
 
 ## Deliverables
 
-- **Spec**: `docs/specs/2026-09-22-agent-builder-skill-spec.md`
-- **Plan**: `docs/plans/2026-09-22-agent-builder-skill.md`
+- **Spec**: `docs/specs/agent-builder-skill-spec.md`
+- **Plan**: `docs/plans/agent-builder-skill-plan.md`
 - **Skill**: `.claude/skills/agent-builder/` (SKILL.md + 2 reference files)
 
 ## Flow
@@ -902,5 +902,5 @@ EOF
 - [ ] **Step 2: Verify the update**
 
 ```bash
-gh issue view 53 --repo dsiddharth2/apra-agent-kit
+gh issue view 53 --repo Apra-Labs/apra-agent-kit
 ```

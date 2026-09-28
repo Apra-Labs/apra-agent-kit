@@ -1,10 +1,10 @@
 # Memory Awareness Implementation Plan
 
-> **Prerequisite:** The conversation context plan (`docs/plans/2026-09-28-conversation-context.md`) must be implemented first. This plan assumes `workingContext` has been removed and `conversationContext` is live.
+> **Prerequisite:** The conversation context plan (`docs/plans/conversation-context-plan.md`) must be implemented first. This plan assumes `workingContext` has been removed and `conversationContext` is live.
 
 **Goal:** Make the memory system visible and configurable in the two developer-facing surfaces — the npm scaffold template and the agent-builder skill — so that new projects and AI-generated specs/plans include memory configuration.
 
-**Spec:** `docs/specs/2026-09-28-memory-awareness-spec.md`
+**Spec:** `docs/specs/memory-awareness-spec.md`
 
 **Tech Stack:** Markdown, JavaScript (ESM), existing test framework (`node:test` + `assert/strict`)
 
