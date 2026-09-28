@@ -298,7 +298,7 @@ export async function executeHostedTask(task, {
       });
     } else {
       result = await runTask(fullTask, {
-        tools: toolRegistry,
+        tools: toolRegistry.filter(t => !t.routing),
         fleetApi: pooledApi,
         budgets: budgetsMod,
         guardrails: guardrailsMod,
