@@ -227,17 +227,7 @@ export async function executeHostedTask(task, {
     }
 
     const workspace = { workerId: lease.workerId, doer: lease.doer, reviewer: lease.reviewer };
-
-    if (strategy === 'workflow') {
-      const wfResult = await executeWorkflow(workflowName, workflowArgs, {
-        fleetApi: createPooledFleetApi(api, lease),
-        toolRegistry,
-        signal: combined.signal,
-        onProgress,
-        workspace,
-      });
-      return { taskId: fullTask.id, traceId, routedTo, ...wfResult };
-    }
+    const pooledApi = createPooledFleetApi(api, lease);
 
     let memories = [];
     if (memory?.longTerm) {
@@ -262,22 +252,33 @@ export async function executeHostedTask(task, {
       }
     }
 
-    const pooledApi = createPooledFleetApi(api, lease);
-    const result = await runTask(fullTask, {
-      tools: toolRegistry,
-      fleetApi: pooledApi,
-      budgets: budgetsMod,
-      guardrails: guardrailsMod,
-      ...runLoopConfig,
-      strategy,
-      jobs,
-      traceId,
-      signal: combined.signal,
-      workspace,
-      onIteration: onProgress,
-      memory,
-      memories,
-    });
+    let result;
+    if (strategy === 'workflow') {
+      result = await executeWorkflow(workflowName, workflowArgs, {
+        fleetApi: pooledApi,
+        toolRegistry,
+        signal: combined.signal,
+        onProgress,
+        workspace,
+      });
+    } else {
+      result = await runTask(fullTask, {
+        tools: toolRegistry,
+        fleetApi: pooledApi,
+        budgets: budgetsMod,
+        guardrails: guardrailsMod,
+        ...runLoopConfig,
+        strategy,
+        jobs,
+        traceId,
+        signal: combined.signal,
+        workspace,
+        onIteration: onProgress,
+        memory,
+        memories,
+      });
+    }
+
     if (memory?.learner) {
       try {
         const learned = await memory.learner.extract({

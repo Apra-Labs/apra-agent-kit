@@ -21,7 +21,7 @@ export function buildClassifierPrompt(goal, registry) {
 RULES:
 1. ALWAYS pick a workflow if the goal can be served by one, even loosely. Workflows are faster and cheaper.
 2. Pick open-ended ONLY when no workflow fits at all (e.g. general chat, opinions, or questions needing tools not listed above).
-3. Pick plan-execute ONLY for complex multi-step tasks requiring planning across many tools (e.g. "plan a full 5-day trip").
+3. Pick plan-execute ONLY for complex multi-step tasks that no single workflow can handle.
 4. When extracting args, use the most specific place name from the goal. If the user says a region/state, use its most well-known city.
 
 ${workflowSection}FALLBACK STRATEGIES (only when no workflow fits):
@@ -133,15 +133,37 @@ function unwrapWorkflowResult(result) {
 }
 
 function adaptReportPhase(onProgress) {
-  if (!onProgress) return () => {};
+  if (!onProgress) {
+    const noop = () => {};
+    noop.complete = () => {};
+    return noop;
+  }
   let iteration = 0;
-  return (messageOrObj) => {
-    if (typeof messageOrObj === 'string') {
+  let stepIndex = -1;
+  let currentStep = null;
+
+  async function completeCurrentStep() {
+    if (currentStep) {
       iteration += 1;
-      return onProgress({ iteration, message: messageOrObj });
+      try {
+        await onProgress({ iteration, kind: 'step_completed', message: `completed: ${currentStep}`, stepIndex, step: { type: 'tool', tool: currentStep }, result: { ok: true } });
+      } catch { /* best-effort */ }
+      currentStep = null;
+    }
+  }
+
+  const report = async (messageOrObj) => {
+    if (typeof messageOrObj === 'string') {
+      await completeCurrentStep();
+      stepIndex += 1;
+      iteration += 1;
+      currentStep = messageOrObj;
+      return onProgress({ iteration, kind: 'step_started', message: messageOrObj, stepIndex, step: { type: 'tool', tool: messageOrObj } });
     }
     return onProgress(messageOrObj);
   };
+  report.complete = completeCurrentStep;
+  return report;
 }
 
 export async function executeWorkflow(name, args, { fleetApi, toolRegistry, signal, onProgress, workspace }) {
@@ -150,13 +172,15 @@ export async function executeWorkflow(name, args, { fleetApi, toolRegistry, sign
     return { status: 'failed', result: { error: 'workflow_not_found', message: `Workflow "${name}" not found` }, history: [], budget: null };
   }
 
+  const reportPhase = adaptReportPhase(onProgress);
   const executed = await executeTool(entry, {
     fleetApi,
     args: args ?? {},
     signal,
-    reportPhase: adaptReportPhase(onProgress),
+    reportPhase,
     workspace,
   });
+  await reportPhase.complete();
 
   if (!executed.ok) {
     if (executed.error === 'timeout' && signal?.aborted) {
