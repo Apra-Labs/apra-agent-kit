@@ -107,7 +107,7 @@ not "you can use X". This is the most important configuration for agent behavior
 - **Decay**: {{auto with intervalMs — timer-based; or on-recall — decay runs when facts are queried}}
 - **Dedup**: {{enabled — reject duplicate facts; or disabled}}
 - **Max entries**: {{cap before oldest decayed entries are purged}}
-- **Preload directory**: {{path to .md files with seed knowledge, or "none"}}
+- **Preload directory**: {{path to .json files with seed knowledge, or "none"}}
 - **Memory tool coaching**: {{what the agentDescription should say about when to use remember/recall — e.g. "ALWAYS recall relevant knowledge before planning"}}
 
 ### Run State
