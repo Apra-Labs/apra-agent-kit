@@ -11,3 +11,6 @@ node_modules/
 .cursor/
 workdir/*
 !workdir/.gitkeep
+memory/*.db
+memory/*.db-shm
+memory/*.db-wal

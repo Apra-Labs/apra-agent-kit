@@ -40,6 +40,24 @@ updates them for you.
 | `mcp/registry.mjs` | Your tool catalog |
 | `docs/` | Kit architecture and development reference |
 | `scripts/doctor.mjs` | Environment check |
+| `host.config.mjs` → `modules.memory` | Optional three-tier memory system |
+
+## Memory (optional)
+
+The kit includes a three-tier memory system. Uncomment the `memory` block in
+`host.config.mjs` to enable:
+
+| Tier | What it does |
+|------|-------------|
+| **Conversation context** | Carries prior chat turns across tasks within a session |
+| **Run state** | Crash recovery — resumes interrupted tasks |
+| **Long-term memory** | Cross-session facts with FSRS-6 decay |
+
+When long-term memory is enabled, the agent gains four tools: `remember`,
+`recall`, `forget`, and `promote`. Coach the agent to use them via the
+`agentDescription` field in `host.config.mjs`.
+
+See [docs/getting-started.md](docs/getting-started.md) for configuration details.
 
 ## Token
 
