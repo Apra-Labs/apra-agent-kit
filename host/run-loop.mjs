@@ -23,6 +23,7 @@ export async function runTask(task, {
   traceId,
   memory,
   memories,
+  conversation,
 } = {}) {
   // One id for the whole run, threaded into every tool call so a result in a
   // downstream system can be traced back to the plan that produced it.
@@ -39,6 +40,7 @@ export async function runTask(task, {
     traceId: runTraceId,
     memory: runMemory,
     memories,
+    conversation,
   };
 
   const strat = strategy === 'plan-execute'

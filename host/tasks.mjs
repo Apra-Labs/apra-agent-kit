@@ -252,6 +252,40 @@ export async function executeHostedTask(task, {
       }
     }
 
+    let conversationHistory = [];
+    const cc = memory?.conversationContext;
+    const ccMode = cc?.mode ?? null;
+
+    if (ccMode === 'store' && task.sessionId) {
+      try {
+        conversationHistory = await cc.forPrompt(task.sessionId);
+        logger.info?.(`conversation context loaded: ${conversationHistory.length} entries for session ${task.sessionId}`);
+      } catch (err) {
+        logger.warn?.(`conversation context load failed — continuing: ${err?.message ?? err}`);
+      }
+    } else if (ccMode === 'passthrough' && Array.isArray(task.conversation)) {
+      const max = cc.maxRecentTurns ?? 10;
+      const recent = task.conversation.slice(-max * 2).map(c => ({
+        role: c.role === 'assistant' ? 'turn' : c.role,
+        ...(c.role === 'user' ? { goal: c.text } : {}),
+        ...(c.role === 'assistant' ? { answer: c.text } : {}),
+      }));
+      // Pair user/assistant into turn objects
+      const paired = [];
+      for (let i = 0; i < recent.length - 1; i += 2) {
+        const u = recent[i];
+        const a = recent[i + 1];
+        if (u.role === 'user' && a?.role === 'turn') {
+          paired.push({ role: 'turn', goal: u.goal, answer: a.answer });
+        }
+      }
+      conversationHistory = paired.slice(-max);
+      logger.info?.(`conversation passthrough: ${conversationHistory.length} turns from caller`);
+    } else if (Array.isArray(task.conversation) && !ccMode) {
+      // Fallback: no mode configured but caller sent conversation — use raw, cap at 10
+      conversationHistory = task.conversation.slice(-10);
+    }
+
     let result;
     if (strategy === 'workflow') {
       result = await executeWorkflow(workflowName, workflowArgs, {
@@ -277,7 +311,23 @@ export async function executeHostedTask(task, {
         onIteration: onProgress,
         memory,
         memories,
+        conversation: conversationHistory,
       });
+    }
+
+    if (ccMode === 'store' && task.sessionId && cc) {
+      try {
+        const answerText = typeof result.result === 'string'
+          ? result.result
+          : JSON.stringify(result.result ?? null);
+        await cc.recordTurn(task.sessionId, {
+          goal: task.goal,
+          answer: answerText,
+          status: result.status,
+        });
+      } catch (err) {
+        logger.warn?.(`conversation turn record failed: ${err?.message ?? err}`);
+      }
     }
 
     if (memory?.learner) {

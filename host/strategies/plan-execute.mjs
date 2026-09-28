@@ -35,8 +35,9 @@ export function createPlanExecuteStrategy({
   traceId = null,
   memory,
   memories,
+  conversation,
 }) {
-  const systemPrompt = buildSystemPrompt({ agentName, agentDescription, memories });
+  const systemPrompt = buildSystemPrompt({ agentName, agentDescription, memories, conversation });
   const toolCatalog = formatTools(tools);
   const observations = [];
   const taskKey = task.id ?? task.goal;

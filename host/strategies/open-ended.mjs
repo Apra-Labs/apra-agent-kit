@@ -21,8 +21,9 @@ export function createOpenEndedStrategy({
   traceId = null,
   memory,
   memories,
+  conversation,
 }) {
-  const systemPrompt = buildSystemPrompt({ agentName, agentDescription, memories });
+  const systemPrompt = buildSystemPrompt({ agentName, agentDescription, memories, conversation });
   const toolCatalog = formatTools(tools);
   const observations = [];
   let noActionCount = 0;

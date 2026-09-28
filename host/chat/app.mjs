@@ -6,6 +6,18 @@
 /* global marked, DOMPurify */
 (() => {
   var apiBase = location.pathname.replace(/\/chat\/?$/, '');
+
+  var sessionId = (function() {
+    var key = 'chat-session-id';
+    var existing = null;
+    try { existing = sessionStorage.getItem(key); } catch(e) {}
+    if (existing) return existing;
+    var id = 'ses-' + crypto.randomUUID().slice(0, 12);
+    try { sessionStorage.setItem(key, id); } catch(e) {}
+    return id;
+  })();
+
+  var conversationTurns = [];
   var $ = function(sel) { return document.querySelector(sel); };
   var transcriptEl = $('#transcript');
   var composerEl = $('#composer');
@@ -572,6 +584,12 @@
           try { event = JSON.parse(msg.data); } catch (err) { console.error('unparseable event', msg.data, err); return; }
           console.log(event.type, event.kind || '', event);
           apply(function(turn) { return reduce(turn, event); });
+          if (type === 'settled' && event.status === 'completed' && event.result) {
+            var answerText = typeof event.result === 'string' ? event.result : JSON.stringify(event.result);
+            if (answerText.length > 500) answerText = answerText.slice(0, 500);
+            conversationTurns.push({ role: 'user', text: current.turn.goal });
+            conversationTurns.push({ role: 'assistant', text: answerText });
+          }
         });
       })(types[t]);
     }
@@ -595,7 +613,7 @@
     renderCard(card, current.turn);
     updateComposer(true);
 
-    fetch(apiBase + '/task', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ goal: goal }) })
+    fetch(apiBase + '/task', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ goal: goal, sessionId: sessionId, conversation: conversationTurns.slice(-20) }) })
       .then(function(res) {
         return res.json().catch(function() { return null; }).then(function(body) { return { res: res, body: body }; });
       })

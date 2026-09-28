@@ -81,7 +81,16 @@ When completing a travel planning task, your done result MUST include:
       fallbackStrategy: 'open-ended',
     },
     memory: {
-      workingContext: { enabled: true, maxTurns: 50 },
+      conversationContext: {
+        enabled: true,
+        mode: 'store',
+        store: 'sqlite',
+        dbPath: './memory/conversation.db',
+        maxRecentTurns: 6,
+        maxTotalTurns: 20,
+        compactionStrategy: 'summarise',
+        answerMaxChars: 500,
+      },
       runState: { enabled: true, store: 'sqlite', dbPath: './memory/run-state.db' },
       longTerm: {
         enabled: true,
