@@ -81,10 +81,38 @@ not "you can use X". This is the most important configuration for agent behavior
 - **dispatch**: {{enabled, backend, concurrency}}
 - **chat**: {{enabled, title}}
 - **router**: {{enabled, fallbackStrategy}}
+- **memory**: {{if applicable — conversationContext (mode, store), runState (enabled), longTerm (enabled, autoLearn, decay, dedup)}}
 
 ### API Keys & Environment
 - {{ENV_VAR_NAME}}: {{what it's for, how it reaches the Python tools}}
 - ...
+
+## Memory Configuration
+
+{{Fill based on interview memory question. Omit this entire section if "No memory".}}
+
+{{If conversation context:}}
+### Conversation Context
+- **Mode**: {{store — server persists turns in SQLite/Cosmos, client sends sessionId; or passthrough — caller sends conversation[] with each request}}
+- **Store**: {{sqlite or cosmos}}
+- **Max recent turns**: {{number of verbatim turns kept in prompt, default 6}}
+- **Max total turns**: {{cap per session before oldest are evicted, default 20}}
+- **Compaction**: {{summarise — LLM summarises old turns; or sliding-window — just drop them}}
+- **Answer truncation**: {{max chars for stored answers, default 500}}
+
+{{If long-term memory:}}
+### Long-Term Memory
+- **Store**: {{sqlite or cosmos}}
+- **Auto-learn**: {{true — learner extracts facts after each task; or false — only explicit remember tool calls}}
+- **Decay**: {{auto with intervalMs — timer-based; or on-recall — decay runs when facts are queried}}
+- **Dedup**: {{enabled — reject duplicate facts; or disabled}}
+- **Max entries**: {{cap before oldest decayed entries are purged}}
+- **Preload directory**: {{path to .md files with seed knowledge, or "none"}}
+- **Memory tool coaching**: {{what the agentDescription should say about when to use remember/recall — e.g. "ALWAYS recall relevant knowledge before planning"}}
+
+### Run State
+- **Enabled**: {{true for crash recovery, false if not needed}}
+- **Store**: {{sqlite — same adapter as long-term}}
 
 ## Error Handling & Edge Cases
 
