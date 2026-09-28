@@ -19,10 +19,11 @@ export function buildClassifierPrompt(goal, registry) {
   return `You are a task router. Your job is to pick the fastest execution path for the user's goal.
 
 RULES:
-1. ALWAYS pick a workflow if the goal can be served by one, even loosely. Workflows are faster and cheaper.
-2. Pick open-ended ONLY when no workflow fits at all (e.g. general chat, opinions, or questions needing tools not listed above).
-3. Pick plan-execute ONLY for complex multi-step tasks that no single workflow can handle.
-4. When extracting args, use the most specific place name from the goal. If the user says a region/state, use its most well-known city.
+1. ALWAYS pick a workflow if the goal can be FULLY served by one, even loosely. Workflows are faster and cheaper.
+2. If the goal mentions MULTIPLE destinations or legs (e.g. "go to X then Y", "travel from A to B then to C"), pick plan-execute — no single workflow handles multi-leg trips.
+3. Pick open-ended ONLY when no workflow fits at all (e.g. general chat, opinions, or questions needing tools not listed above).
+4. Pick plan-execute for complex multi-step tasks that no single workflow can handle.
+5. When extracting args, use the most specific place name from the goal. If the user says a region/state, use its most well-known city.
 
 ${workflowSection}FALLBACK STRATEGIES (only when no workflow fits):
 - open-ended: General questions, opinions, or tasks needing unlisted tools.
