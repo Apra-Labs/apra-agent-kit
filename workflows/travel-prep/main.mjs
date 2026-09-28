@@ -8,7 +8,7 @@ const engineScript = path.join(here, 'travel-prep.js');
 
 export const selfExecuting = true;
 
-export async function runTravelPrep({ fleetApi, workspace, country, signal, reportPhase } = {}) {
+export async function runTravelPrep({ fleetApi, workspace, country, signal, reportPhase, memories } = {}) {
   ensureApralabs();
   if (!fleetApi) {
     return withStandaloneLease((ctx) => runTravelPrep({ ...ctx, country, reportPhase }));
@@ -24,6 +24,7 @@ export async function runTravelPrep({ fleetApi, workspace, country, signal, repo
     country: country || 'Japan',
     signal,
     reportPhase,
+    memories: memories ?? [],
   });
 }
 

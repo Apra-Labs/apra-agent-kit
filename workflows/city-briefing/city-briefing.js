@@ -69,12 +69,14 @@ export async function main(context) {
   await reportPhase('composing city briefing with agent');
   if (cancelled()) return { cancelled: true, weather, time: timeInfo };
 
+  const memLines = (args.memories ?? []).map(m => `- [${m.kind}] ${m.text}`).join('\n');
   const prompt = [
     `You are a concise travel assistant. Given the data below, write a short 3-4 sentence city briefing for ${city}.`,
     `Include the current weather, temperature, and local time. End with one practical tip for someone visiting today.`,
     '',
     `Weather data: ${JSON.stringify(weather)}`,
     `Time data: ${JSON.stringify(timeInfo)}`,
+    memLines ? `\nRecalled memories:\n${memLines}` : '',
     '',
     'Reply with ONLY the briefing text, no preamble.',
   ].join('\n');

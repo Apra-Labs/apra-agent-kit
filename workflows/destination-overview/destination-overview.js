@@ -44,10 +44,12 @@ export async function main(context) {
 
   phase('compose');
   await reportPhase(`composing destination overview for ${destination}`);
+  const memLines = (args.memories ?? []).map(m => `- [${m.kind}] ${m.text}`).join('\n');
   const prompt = [
     `You are a concise travel guide. Given the data below, write a short destination overview for ${destination}.`,
     `Include background info and top places to visit. End with one practical tip.`,
     '', `Wikipedia: ${JSON.stringify(wikipedia)}`, `Places: ${JSON.stringify(places)}`,
+    memLines ? `\nRecalled memories:\n${memLines}` : '',
     '', 'Reply with ONLY the overview text, no preamble.',
   ].join('\n');
   const answer = await agent(prompt, { member_name: 'doer' });

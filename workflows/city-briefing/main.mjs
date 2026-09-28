@@ -8,7 +8,7 @@ const engineScript = path.join(here, 'city-briefing.js');
 
 export const selfExecuting = true;
 
-export async function runCityBriefing({ fleetApi, workspace, city, signal, reportPhase } = {}) {
+export async function runCityBriefing({ fleetApi, workspace, city, signal, reportPhase, memories } = {}) {
   ensureApralabs();
   if (!fleetApi) {
     return withStandaloneLease((ctx) => runCityBriefing({ ...ctx, city, reportPhase }));
@@ -24,6 +24,7 @@ export async function runCityBriefing({ fleetApi, workspace, city, signal, repor
     city: city || 'London',
     signal,
     reportPhase,
+    memories: memories ?? [],
   });
 }
 

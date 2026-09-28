@@ -37,10 +37,12 @@ export async function main(context) {
 
   phase('compose');
   await reportPhase(`composing route summary from ${from} to ${to}`);
+  const memLines = (args.memories ?? []).map(m => `- [${m.kind}] ${m.text}`).join('\n');
   const prompt = [
     `You are a concise travel route assistant. Given the data below, write a short summary of the route from ${from} to ${to}.`,
     `Include distance and estimated travel time. End with one practical driving tip.`,
     '', `Route: ${JSON.stringify(route)}`,
+    memLines ? `\nRecalled memories:\n${memLines}` : '',
     '', 'Reply with ONLY the summary text, no preamble.',
   ].join('\n');
   const answer = await agent(prompt, { member_name: 'doer' });

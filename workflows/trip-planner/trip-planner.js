@@ -152,6 +152,7 @@ export async function main(context) {
 
   phase('compose');
   await reportPhase(`composing trip plan for ${destination}`);
+  const memLines = (args.memories ?? []).map(m => `- [${m.kind}] ${m.text}`).join('\n');
   const prompt = [
     `You are a knowledgeable travel planning specialist. Given the tool data below, compose a complete trip plan for ${destination}${from ? ` from ${from}` : ''}.`,
     '',
@@ -171,6 +172,7 @@ export async function main(context) {
     `Currency: ${JSON.stringify(data.currency)}`,
     `Country info: ${JSON.stringify(data.countryInfo)}`,
     data.route ? `Route: ${JSON.stringify(data.route)}` : '',
+    memLines ? `\nRecalled memories (use these to inform your response):\n${memLines}` : '',
     '',
     'Reply with ONLY the trip plan, no preamble.',
   ].join('\n');

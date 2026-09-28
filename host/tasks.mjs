@@ -260,6 +260,7 @@ export async function executeHostedTask(task, {
         signal: combined.signal,
         onProgress,
         workspace,
+        memories,
       });
     } else {
       result = await runTask(fullTask, {

@@ -8,7 +8,7 @@ const engineScript = path.join(here, 'route-check.js');
 
 export const selfExecuting = true;
 
-export async function runRouteCheck({ fleetApi, workspace, from, to, signal, reportPhase } = {}) {
+export async function runRouteCheck({ fleetApi, workspace, from, to, signal, reportPhase, memories } = {}) {
   ensureApralabs();
   if (!fleetApi) {
     return withStandaloneLease((ctx) => runRouteCheck({ ...ctx, from, to, reportPhase }));
@@ -25,6 +25,7 @@ export async function runRouteCheck({ fleetApi, workspace, from, to, signal, rep
     to: to || 'Manali',
     signal,
     reportPhase,
+    memories: memories ?? [],
   });
 }
 
