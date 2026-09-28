@@ -618,6 +618,7 @@ returns a complete answer. This is the default configuration.
 
 ## What's next
 
+- [memory.md](memory.md) — three-tier memory system: conversation context, long-term facts, decay, memory tools
 - [run-loop.md](run-loop.md) — deep dive into strategies, prompts, and review policies
 - [jobs.md](jobs.md) — full async jobs API reference
 - [chat-ui.md](chat-ui.md) — chat page internals and theming
