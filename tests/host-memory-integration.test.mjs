@@ -469,3 +469,121 @@ test('createHost().run() threads a supplied memory module', async () => {
     await dispatcher.close();
   }
 });
+
+// ---------------------------------------------------------------------------
+// The learner's inputs, as executeHostedTask assembles them
+// ---------------------------------------------------------------------------
+
+test('a cancelled run learns nothing', async () => {
+  // Somebody who cancelled did not state a preference. Learning from a run
+  // they stopped would turn an abandoned attempt into a standing fact.
+  let learned = null;
+  const controller = new AbortController();
+  const api = createMockFleetApi({
+    members: rosterNames(1),
+    promptResponses: [
+      '```tool_call\n{"tool": "weather", "args": {"city": "London"}}\n```',
+      '```done\n{"result": "15C", "summary": "ok"}\n```',
+    ],
+  });
+  // Abort once the run is genuinely under way, so runTask reports 'cancelled'
+  // rather than settleWhenAborted short-circuiting before the loop starts.
+  const origExecute = api.executePrompt.bind(api);
+  api.executePrompt = async (args) => {
+    const out = await origExecute(args);
+    controller.abort();
+    return out;
+  };
+
+  const dispatcher = await makeDispatcher();
+  try {
+    const out = await executeHostedTask({ id: 'task-cancel', goal: 'Weather in London' }, {
+      api,
+      activeDispatcher: dispatcher,
+      toolRegistry: makeTools(),
+      runLoopConfig: { strategy: 'open-ended' },
+      budgetsConfig: null,
+      guardrailsMod: null,
+      signal: controller.signal,
+      memory: {
+        longTerm: { async recall() { return []; } },
+        learner: { async extract(args) { learned = args; return { newFacts: [], promotedIds: [] }; } },
+      },
+      checkpoint: { async clear() {} },
+    });
+    assert.equal(out.status, 'cancelled');
+    assert.equal(learned, null, 'the learner was never called');
+  } finally {
+    await dispatcher.close();
+  }
+});
+
+test('answered questions reach the learner, and guardrail approvals do not', async () => {
+  // The wiring tasks.mjs owns: pull the run's history off the job store and
+  // hand the learnable answers to extract. Without this the {{ANSWERS}} block
+  // is always empty however well learnableAnswers filters.
+  const rec = await import('../host/jobs/record.mjs');
+  const prefBatch = {
+    batchId: 'inp-pref', jobId: 'task-answers', askedBy: 'agent',
+    questions: [{ fieldId: 'pace', kind: 'pick_one', prompt: 'How full should the days be?' }],
+    askedAt: '2026-09-30T00:00:00Z', staleAfter: '2026-10-01T00:00:00Z', expiresAt: '2026-10-07T00:00:00Z',
+  };
+  const approvalBatch = { ...prefBatch, batchId: 'inp-ok', askedBy: 'guardrail',
+    questions: [{ fieldId: 'proceed', kind: 'approval', prompt: 'Book it?' }] };
+
+  const events = [
+    rec.questionAskedEntry('task-answers', { batch: prefBatch }),
+    rec.answerReceivedEntry('task-answers', { batchId: 'inp-pref', answers: { pace: 'relaxed' }, answeredBy: 'p-1' }),
+    rec.questionAskedEntry('task-answers', { batch: approvalBatch }),
+    rec.answerReceivedEntry('task-answers', { batchId: 'inp-ok', answers: { proceed: 'approve' }, answeredBy: 'p-1' }),
+  ];
+
+  let learned = null;
+  const dispatcher = await makeDispatcher();
+  try {
+    const out = await executeHostedTask({ id: 'task-answers', goal: 'Plan a trip' }, {
+      api: doneFleet(),
+      activeDispatcher: dispatcher,
+      toolRegistry: makeTools(),
+      runLoopConfig: { strategy: 'open-ended' },
+      budgetsConfig: null,
+      guardrailsMod: null,
+      jobs: { async events() { return events; } },
+      memory: {
+        longTerm: { async recall() { return []; } },
+        learner: { async extract(args) { learned = args; return { newFacts: [], promotedIds: [] }; } },
+      },
+      checkpoint: { async clear() {} },
+    });
+    assert.equal(out.status, 'completed');
+    assert.deepEqual(learned.answers.map(a => a.answer), ['relaxed']);
+    assert.equal(learned.answers[0].prompt, 'How full should the days be?');
+  } finally {
+    await dispatcher.close();
+  }
+});
+
+test('a run with no job store still learns, with no answers', async () => {
+  // jobs is optional on this path. An absent store must mean "no answers",
+  // not a crash that costs the run its learning.
+  let learned = null;
+  const dispatcher = await makeDispatcher();
+  try {
+    await executeHostedTask({ id: 'task-nojobs', goal: 'Plan a trip' }, {
+      api: doneFleet(),
+      activeDispatcher: dispatcher,
+      toolRegistry: makeTools(),
+      runLoopConfig: { strategy: 'open-ended' },
+      budgetsConfig: null,
+      guardrailsMod: null,
+      memory: {
+        longTerm: { async recall() { return []; } },
+        learner: { async extract(args) { learned = args; return { newFacts: [], promotedIds: [] }; } },
+      },
+      checkpoint: { async clear() {} },
+    });
+    assert.deepEqual(learned.answers, []);
+  } finally {
+    await dispatcher.close();
+  }
+});

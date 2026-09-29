@@ -5,6 +5,7 @@ import { classify, executeWorkflow } from './router.mjs';
 import { runTask } from './run-loop.mjs';
 import { createBudgets } from './budgets.mjs';
 import { checkpointKey } from './checkpoint/record.mjs';
+import { learnableAnswers } from './memory/learner.mjs';
 
 export const PROGRESS_TYPES = new Set(['plan', 'action', 'observation', 'review', 'step_review', 'step_started', 'step_failed', 'memory_recall', 'memory_learn']);
 
@@ -357,12 +358,20 @@ export async function executeHostedTask(task, {
         }
       }
 
-      if (memory?.learner) {
+      // A person who cancelled did not state a preference, so a cancelled
+      // run learns nothing.
+      if (memory?.learner && result.status !== 'cancelled') {
         try {
           const learned = await memory.learner.extract({
             task: fullTask,
             history: result.observations ?? result.history ?? [],
             recalledFacts: memories,
+            // Higher signal than a tool result: these are preferences the
+            // person stated outright. Guardrail questions and approvals never
+            // appear here — see learnableAnswers.
+            answers: learnableAnswers(
+              jobs && fullTask.id ? await jobs.events(fullTask.id).catch(() => []) : [],
+            ),
             fleetApi: pooledApi,
           });
           if (onProgress) {
