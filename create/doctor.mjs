@@ -121,16 +121,16 @@ export function runChecks(probes) {
         ),
   );
 
-  const linked = path.join(probes.cwd, 'node_modules', '@apralabs', 'apra-fleet-workflow');
+  const workflowPkg = path.join(probes.cwd, 'node_modules', '@apralabs', 'apra-fleet', 'packages', 'apra-fleet-workflow');
   checks.push(
-    probes.exists(linked)
-      ? pass('apralabs', '@apralabs', 'linked')
+    probes.exists(workflowPkg)
+      ? pass('apralabs', '@apralabs', 'installed')
       : fail(
           'apralabs',
           '@apralabs',
-          'not linked',
-          'workflows fail at import of @apralabs/apra-fleet-workflow',
-          'install Fleet first — the link is created automatically on the next run',
+          'not installed',
+          'workflows fail at import of @apralabs/apra-fleet',
+          'npm install @apralabs/apra-fleet',
         ),
   );
 

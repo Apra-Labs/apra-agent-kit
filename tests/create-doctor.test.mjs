@@ -79,7 +79,7 @@ test('a missing claude fails but says mock tests still pass', () => {
   assert.match(claude.consequence, /mock tests still pass/i);
 });
 
-test('an unresolved @apralabs symlink fails', () => {
+test('a missing @apralabs/apra-fleet package fails', () => {
   const checks = runChecks(healthyProbes({ exists: () => false }));
   assert.equal(byId(checks, 'apralabs').ok, false);
 });

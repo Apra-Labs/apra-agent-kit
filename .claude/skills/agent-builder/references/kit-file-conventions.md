@@ -74,7 +74,6 @@ Boilerplate that imports `withStandaloneLease` and `ensureApralabs`, exports `ru
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { withStandaloneLease } from '../standalone.mjs';
-import { ensureApralabs } from '../../transport/ensure-apralabs.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const engineScript = path.join(here, '<name>.js');
@@ -82,12 +81,11 @@ const engineScript = path.join(here, '<name>.js');
 export const selfExecuting = true;
 
 export async function run<Name>({ fleetApi, workspace, /* args */ signal, reportPhase } = {}) {
-  ensureApralabs();
   if (!fleetApi) {
     return withStandaloneLease((ctx) => run<Name>({ ...ctx, /* args, */ reportPhase }));
   }
-  const { FleetWorkflow } = await import('@apralabs/apra-fleet-workflow');
-  const { WorkflowEngine } = await import('@apralabs/apra-fleet-workflow/engine');
+  const { FleetWorkflow } = await import('@apralabs/apra-fleet/packages/apra-fleet-workflow/src/workflow/index.mjs');
+  const { WorkflowEngine } = await import('@apralabs/apra-fleet/packages/apra-fleet-workflow/src/workflow/engine.mjs');
 
   const workflow = new FleetWorkflow(fleetApi);
   const engine = new WorkflowEngine(workflow);

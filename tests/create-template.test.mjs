@@ -91,6 +91,18 @@ test('the template package.json carries the name placeholder and the four script
   assert.ok(!pkg.private, 'a user project should not be marked private by default');
 });
 
+test('the template package.json includes @apralabs/apra-fleet as a dependency', () => {
+  const pkg = JSON.parse(fs.readFileSync(path.join(templateDir, 'package.json'), 'utf8'));
+  assert.ok(pkg.dependencies['@apralabs/apra-fleet'], 'missing @apralabs/apra-fleet dependency');
+});
+
+test('the template hello workflow imports from @apralabs/apra-fleet, not @apralabs/apra-fleet-workflow', () => {
+  const body = fs.readFileSync(path.join(templateDir, 'workflows/hello/main.mjs'), 'utf8');
+  assert.ok(!body.includes("'@apralabs/apra-fleet-workflow'"), 'must not import the unpublished package name');
+  assert.ok(!body.includes('ensureApralabs'), 'must not call ensureApralabs — the npm dep handles resolution');
+  assert.match(body, /@apralabs\/apra-fleet\/packages\/apra-fleet-workflow/);
+});
+
 test('the starter registry registers hello and does not import the kit demos', () => {
   const registry = fs.readFileSync(path.join(templateDir, 'mcp/registry.mjs'), 'utf8');
   assert.match(registry, /runHello/);

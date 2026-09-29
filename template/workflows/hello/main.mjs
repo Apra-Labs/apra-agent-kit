@@ -5,7 +5,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { withStandaloneLease } from '../standalone.mjs';
-import { ensureApralabs } from '../../transport/ensure-apralabs.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const engineScript = path.join(here, 'hello.js');
@@ -13,13 +12,12 @@ const engineScript = path.join(here, 'hello.js');
 export const selfExecuting = true;
 
 export async function runHello({ fleetApi, workspace, signal, reportPhase, name } = {}) {
-  ensureApralabs();
   if (!fleetApi) {
     // CLI run: spawn Fleet, take one lease, run, release.
     return withStandaloneLease((ctx) => runHello({ ...ctx, reportPhase, name }));
   }
-  const { FleetWorkflow } = await import('@apralabs/apra-fleet-workflow');
-  const { WorkflowEngine } = await import('@apralabs/apra-fleet-workflow/engine');
+  const { FleetWorkflow } = await import('@apralabs/apra-fleet/packages/apra-fleet-workflow/src/workflow/index.mjs');
+  const { WorkflowEngine } = await import('@apralabs/apra-fleet/packages/apra-fleet-workflow/src/workflow/engine.mjs');
 
   const workflow = new FleetWorkflow(fleetApi);
   const engine = new WorkflowEngine(workflow);
