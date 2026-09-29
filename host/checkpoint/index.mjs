@@ -20,6 +20,7 @@
 import { createCheckpointRecord, validateCheckpoint } from './record.mjs';
 
 export { CHECKPOINT_VERSION, checkpointKey, createCheckpointRecord, validateCheckpoint, scrub } from './record.mjs';
+export { rebuildFromHistory, resumeState } from './rebuild.mjs';
 
 // Tags the row so an operator reading the memory store can tell run state from
 // the facts the agent has learnt. The retired run-state used `__run_state__`.
