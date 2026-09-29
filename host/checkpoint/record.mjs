@@ -86,6 +86,22 @@ function safeIdentity(identity) {
  * added here that is *not* derivable means `rebuildFromHistory` must learn to
  * produce it too, or a cold resume silently loses it.
  */
+// Facts with no id are all kept: there is nothing to dedupe on, and dropping
+// them would lose part of what the run actually saw.
+function dedupeById(facts = []) {
+  const seen = new Set();
+  const out = [];
+  for (const f of facts) {
+    const id = f?.id;
+    if (id != null) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+    }
+    out.push(f);
+  }
+  return out;
+}
+
 export function createCheckpointRecord({
   taskKey, jobId = null, traceId = null, kitVersion = null,
   task = null, agentName = null, agentDescription = null, strategy = null,
@@ -112,7 +128,11 @@ export function createCheckpointRecord({
 
     // what it was given, so a resume reproduces the prompt it had
     conversation: scrub(conversation),
-    recalledFacts: scrub(recalledFacts),
+    // Deduped by id. A long run recalls on every iteration and rewrites this
+    // record each time; appending without deduping grows the row until it no
+    // longer fits the store. The first occurrence wins — what the run was
+    // given first is what it reasoned on.
+    recalledFacts: scrub(dedupeById(recalledFacts)),
 
     // accounting
     budget: budget ? { ...budget } : null,

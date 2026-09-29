@@ -148,7 +148,7 @@ function extractTaskTags(task) {
 export async function executeHostedTask(task, {
   api, activeDispatcher, toolRegistry, runLoopConfig, routerConfig,
   budgetsConfig, guardrailsMod, jobs, signal, onProgress, memory, logger = console,
-  askUser, resumeFrom = null,
+  askUser, resumeFrom = null, checkpoint = null,
 }) {
   const fullTask = { id: task.id ?? `t-${Date.now().toString(36)}`, ...task };
   // Accept a caller-supplied trace id so a run can be correlated with the
@@ -325,6 +325,13 @@ export async function executeHostedTask(task, {
         conversation: conversationHistory,
         askUser,
         resumeFrom,
+        // The checkpoint, plus what a resume needs to reproduce this run's
+        // prompt: who the agent is, and the facts and conversation it was
+        // given. Recalling a different set on resume changes behaviour with
+        // no trace.
+        checkpoint,
+        agentName: runLoopConfig.agentName,
+        agentDescription: runLoopConfig.agentDescription,
       });
     }
 
