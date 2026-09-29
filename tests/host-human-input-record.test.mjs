@@ -75,10 +75,11 @@ test('status: you cannot pause a job that never started', () => {
 // Record fields
 // ---------------------------------------------------------------------------
 
-test('record: a new record carries pendingInput and snapshot, both null', () => {
+test('record: a new record carries pendingInput and pendingBatchId, both null', () => {
   const r = rec.createRecord({ goal: 'go' });
   assert.equal(r.pendingInput, null);
-  assert.equal(r.snapshot, null);
+  assert.equal(r.pendingBatchId, null);
+  assert.equal('snapshot' in r, false, 'the snapshot retired into host/checkpoint/');
   assert.equal(r.status, 'queued');
 });
 

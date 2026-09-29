@@ -69,8 +69,8 @@ export function createRecord(task, { id = newJobId(), callbackUrl = null, metada
     // Human input. Both null on every run that never asks anything, so a
     // record with `humanInput` disabled is byte-for-byte what it was before
     // apart from these two nulls.
-    pendingInput: null,   // the unanswered batch, or null
-    snapshot: null,       // disposable resume cache; history remains the truth
+    pendingInput: null,    // the unanswered batch, or null
+    pendingBatchId: null,  // pointer to the checkpoint's parked batch, or null
   };
 }
 

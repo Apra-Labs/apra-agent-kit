@@ -118,7 +118,10 @@ When completing a travel planning task, your done result MUST include:
         compactionStrategy: 'summarise',
         answerMaxChars: 500,
       },
-      runState: { enabled: true, store: 'sqlite', dbPath: './memory/run-state.db' },
+      // One record for crash recovery and for a paused run. `runState` was the
+      // former name and is still read; the filename is kept so an existing
+      // store — which may hold a paused run — is still found.
+      checkpoint: { enabled: true, store: 'sqlite', dbPath: './memory/run-state.db' },
       longTerm: {
         enabled: true,
         store: 'sqlite',

@@ -111,7 +111,7 @@ test('off: a record with the feature unused has both fields null', async () => {
   const { createRecord } = await import('../host/jobs/record.mjs');
   const r = createRecord({ goal: 'go' });
   assert.equal(r.pendingInput, null);
-  assert.equal(r.snapshot, null);
+  assert.equal(r.pendingBatchId, null);
 });
 
 test('off: the run loop with no askUser returns no pause fields', async () => {

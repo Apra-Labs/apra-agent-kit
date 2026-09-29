@@ -329,6 +329,23 @@ On Functions the memory store must therefore be one the host can reach from the
 activity — `cosmos`, not the VM's sqlite file. Set `dispatch.store.kind` to
 `cosmos` to keep job state outside the task hub as well.
 
+### What is covered end to end
+
+`tests/e2e/scenarios/s20-human-input.json` is black-box HTTP against `BASE_URL`,
+so the same scenario proves both deployments: a run parks on a guardrail
+approval, is answered over `POST /jobs/:id/input`, resumes, and the irreversible
+tool runs **once** across the pause.
+
+```bash
+npm run e2e:vm        # Express + in-process jobs — passing
+npm run e2e:durable   # Azure Functions + Durable against Azurite
+```
+
+`e2e:durable` is the leg that has never had a real task hub behind it: #63 and
+the checkpoint change were both unit-tested against mocks, which prove the
+orchestrator's *shape* but not that a pause survives a genuinely completed
+orchestration. Both legs need Docker.
+
 ## Storage and retention
 
 ```js

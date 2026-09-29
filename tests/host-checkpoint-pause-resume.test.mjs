@@ -92,7 +92,7 @@ test('the job record carries a pointer, not state', async () => {
     const { jobId } = await h.jobs.submit({ goal: 'ask' });
     const rec = await waitFor(h.jobs, jobId, 'waiting_input');
 
-    assert.equal(rec.snapshot, null, 'no state on the job record');
+    assert.equal('snapshot' in rec, false, 'no state field on the job record at all');
     assert.equal(rec.pendingBatchId, rec.pendingInput.batchId, 'a pointer is on the record');
     assert.ok(rec.pendingInput, 'and the batch, which the UI renders');
     assert.equal(h.rows.size, 1, 'the state is in the checkpoint store');

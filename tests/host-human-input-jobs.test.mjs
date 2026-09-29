@@ -146,7 +146,7 @@ test('park: the checkpoint records where the run had got to', async () => {
   const { jobId } = await jobs.submit({ goal: 'book a flight' });
   const record = await waitForStatus(jobs, jobId, 'waiting_input');
 
-  assert.equal(record.snapshot, null, 'no state on the record');
+  assert.equal('snapshot' in record, false, 'no state field on the record at all');
   assert.equal(record.pendingBatchId, record.pendingInput.batchId, 'a pointer is');
 
   const cp = (await checkpoint.load(`cp-${jobId}`)).checkpoint;
@@ -536,7 +536,7 @@ test('disabled: an ordinary run is untouched by the feature being present', asyn
   const record = await waitForStatus(jobs, jobId, 'completed');
   assert.equal(record.result, 'ok');
   assert.equal(record.pendingInput, null);
-  assert.equal(record.snapshot, null);
+  assert.equal(record.pendingBatchId, null);
 
   await jobs.stop({ drainMs: 0 });
 });
