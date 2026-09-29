@@ -592,7 +592,7 @@ See `host.config.mjs` to enable it.">
 
 <Brief: what strategy, how many members, link to kit docs for internals.>
 
-Built on the [Fleet Agent Kit](https://github.com/dsiddharth2/workflow-kit).
+Built on the [Fleet Agent Kit](https://github.com/Apra-Labs/apra-agent-kit).
 See [docs/architecture.md](docs/architecture.md) for kit internals.
 ```
 

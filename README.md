@@ -25,15 +25,12 @@
 
 ### Quick Start
 
-Scaffold a new agent project from this repository:
+Scaffold a new agent project:
 
 ```bash
-npx --yes github:dsiddharth2/workflow-kit my-agent
+npm create @apralabs/agent-kit my-agent
 cd my-agent
 ```
-
-> **Note:** The package is not yet published to npm. The command above installs
-> directly from the GitHub repository.
 
 The command copies the kit, writes a starter workflow, and offers to install
 Fleet and the Claude CLI. It explains each step before it asks.
@@ -315,14 +312,14 @@ We welcome contributions. Here's how:
 Clone this repository instead of scaffolding:
 
 ```bash
-git clone https://github.com/dsiddharth2/workflow-kit.git
-cd workflow-kit && npm install
+git clone https://github.com/Apra-Labs/apra-agent-kit.git
+cd apra-agent-kit && npm install
 ```
 
 ### Fork and PR workflow
 
 1. **Fork** the repo on GitHub
-2. **Clone** your fork: `git clone https://github.com/<you>/workflow-kit.git`
+2. **Clone** your fork: `git clone https://github.com/<you>/apra-agent-kit.git`
 3. **Create a branch**: `git checkout -b feature/your-feature`
 4. **Make your changes** — follow the conventions in [docs/development.md](docs/development.md)
 5. **Run tests**: `npm test` (mock tests — no Fleet binary or tokens needed)

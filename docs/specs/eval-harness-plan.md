@@ -1731,7 +1731,7 @@ git commit -m "feat(evals): add travel agent eval suite with 6 scripted cases"
 In `template/package.json`, add to `"scripts"`:
 
 ```json
-"eval": "node node_modules/@dsiddharth2/create-fleet-agent/evals/runner.mjs"
+"eval": "node node_modules/@apralabs/create-agent-kit/evals/runner.mjs"
 ```
 
 - [ ] **Step 4: Add evals/reports/ to template/gitignore**

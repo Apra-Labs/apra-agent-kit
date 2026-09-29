@@ -1,0 +1,50 @@
+name: Publish to npm
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run test:unit
+      - name: Create command tests
+        run: |
+          node --test \
+            tests/create-doctor.test.mjs \
+            tests/create-copy.test.mjs \
+            tests/create-substitute.test.mjs \
+            tests/create-prompt.test.mjs \
+            tests/create-template.test.mjs \
+            tests/create-cli.test.mjs \
+            tests/create-packaging.test.mjs \
+            tests/ensure-apralabs-location.test.mjs \
+            tests/mcp-registry-helpers.test.mjs
+      - name: E2E scaffold test
+        run: node --test tests/create-e2e.test.mjs
+
+  publish:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+      - run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
