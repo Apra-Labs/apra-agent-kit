@@ -4,7 +4,8 @@ import {
   inputRequiredEvent, inputResolvedEvent,
   questionAskedEntry, answerReceivedEntry, questionExpiredEntry,
 } from './record.mjs';
-import { capture, resumeState } from '../human-input/snapshot.mjs';
+import { checkpointKey } from '../checkpoint/record.mjs';
+import { resumeState } from '../checkpoint/rebuild.mjs';
 import { createAskUser, answeredBatchesFromHistory } from '../human-input/ask.mjs';
 import { planResume } from '../human-input/resume.mjs';
 import { isStale, isExpired } from '../human-input/batch.mjs';
@@ -13,7 +14,7 @@ const FORCE_SETTLE_AFTER_ABORT_MS = 30_000;
 
 export function createInProcessJobs({
   store, runJob, notifier = null, config, logger = console, now = () => new Date(),
-  allowHttpCallbacks = false, humanInput = null, kitVersion = null,
+  allowHttpCallbacks = false, humanInput = null, kitVersion = null, checkpoint = null,
 }) {
   if (!store) throw new Error('createInProcessJobs requires store');
   if (typeof runJob !== 'function') throw new Error('createInProcessJobs requires runJob');
@@ -57,7 +58,10 @@ export function createInProcessJobs({
   async function settle(jobId, { status, result, error, history = [], budget = null }) {
     // A settled job holds no unanswered question. Leaving `pendingInput` set
     // would leave a form on screen for a run that has finished.
-    await store.update(jobId, { status, result, error, history, budget, finishedAt: iso(), pendingInput: null });
+    await store.update(jobId, { status, result, error, history, budget, finishedAt: iso(), pendingInput: null, pendingBatchId: null });
+    // The checkpoint is in-flight state. Keeping it after the run finishes
+    // grows the store with every job that ever ran.
+    if (checkpoint) { try { await checkpoint.clear(checkpointKey({ id: jobId })); } catch { /* best effort */ } }
     await publish(jobId, settledEvent(jobId, { status, result, error }, now()));
     callbackUrls.delete(jobId);
     if (TERMINAL_STATUSES.has(status)) subscribers.delete(jobId);
@@ -77,11 +81,16 @@ export function createInProcessJobs({
     // them hands the next question a stale answer. See resume.mjs.
     const answered = answeredBatchesFromHistory(history).slice(-1);
 
+    const taskKey = checkpointKey({ id: jobId });
+    const loaded = checkpoint ? await checkpoint.load(taskKey) : { ok: false, reason: 'absent' };
+
     let resumeFrom = null;
-    if (record.snapshot || answered.length > 0) {
-      const { state, source, reason } = resumeState(record, history, { kitVersion, now: now() });
+    if (loaded.ok || answered.length > 0) {
+      const { state, source, reason } = resumeState(loaded, history, { taskKey, jobId, kitVersion, now: now() });
+      // Worth logging: a rebuild means a checkpoint was lost. `absent` is the
+      // ordinary first case and says nothing.
       if (source === 'history' && reason !== 'absent') {
-        logger.warn(`[jobs] job ${jobId} resumed from history (${reason}); its snapshot was unusable`);
+        logger.warn(`[jobs] job ${jobId} resumed from history (${reason}); its checkpoint was unusable`);
       }
       resumeFrom = {
         observations: state.observations,
@@ -113,24 +122,33 @@ export function createInProcessJobs({
    * slot for a week at `dispatch.concurrency: 1`.
    */
   async function park(jobId, record, outcome, askUser) {
-    const snapshot = capture({
+    const saved = await checkpoint.save(checkpointKey({ id: jobId }), {
       jobId,
       traceId: outcome.traceId ?? null,
-      kitVersion,
       task: record.task,
+      agentName: record.metadata?.agentName ?? null,
+      agentDescription: record.metadata?.agentDescription ?? null,
+      strategy: outcome.routedTo ?? null,
       observations: outcome.progress?.observations ?? outcome.history ?? [],
       plan: outcome.progress?.plan ?? null,
       budget: outcome.budget ?? null,
       interruptions: askUser?.interruptions?.() ?? 0,
       identity: record.metadata?.identity ?? null,
       pendingBatchId: outcome.batchId,
+      workspace: outcome.workspace ?? null,
       writtenAt: now(),
     });
 
+    // An unsaved pause is a question nobody will ever answer. Failing here is
+    // the only honest outcome: carrying on would mean proceeding past an
+    // approval that was never given.
+    if (!saved) throw new Error('the checkpoint could not be written');
+
+    // The record keeps a pointer and the batch the UI renders — never state.
     await store.update(jobId, {
       status: 'waiting_input',
       pendingInput: outcome.batch,
-      snapshot,
+      pendingBatchId: outcome.batchId,
       history: outcome.history ?? [],
       budget: outcome.budget ?? null,
     });
@@ -393,7 +411,11 @@ export function createInProcessJobs({
 
       const record = await store.get(jobId);
       const history = record ? await store.events(jobId) : [];
-      const plan = planResume(record, submission, { history, identity, kitVersion, now: now() });
+      // The record carries only a pointer, so the state — including whose run
+      // this is — comes from the checkpoint.
+      const taskKey = checkpointKey({ id: jobId });
+      const loaded = checkpoint ? await checkpoint.load(taskKey) : { ok: false, reason: 'absent' };
+      const plan = planResume(record, submission, { history, identity, kitVersion, now: now(), loaded, taskKey });
       if (!plan.ok) return plan;
 
       // History first. If the transition below fails, the answer is still

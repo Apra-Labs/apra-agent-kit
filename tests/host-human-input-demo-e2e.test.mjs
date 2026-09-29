@@ -44,9 +44,13 @@ const demoHost = (extra = {}) => startHost({
   guardrails: { enabled: true, defaultPolicy: 'allow', validateInputs: true },
   dispatch: { enabled: true, store: { kind: 'memory' }, maxQueueSize: 4, concurrency: 1 },
   notify: { sse: { enabled: true } },
+  // humanInput requires memory: a paused run stores its checkpoint there.
+  memory: { enabled: true, checkpoint: { enabled: true, store: 'filesystem', dir: memoryDir() } },
   humanInput: { enabled: true },
   ...extra,
 });
+
+const memoryDir = () => path.join(os.tmpdir(), `hi-mem-${Math.random().toString(36).slice(2, 10)}`);
 
 const url = (host, p) => `http://127.0.0.1:${host.port()}${p}`;
 const getJson = async (host, p) => { const r = await fetch(url(host, p)); return { status: r.status, body: await r.json() }; };

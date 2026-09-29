@@ -8,6 +8,7 @@ import { createPooledFleetApi } from '../pool/pooled-fleet-api.mjs';
 import { loadConfig, resolveChatConfig, resolveHumanInputConfig } from './config.mjs';
 import { extendRegistry, withJobTools, withMemoryTools } from './tools/registry.mjs';
 import { createMemoryModule } from './memory/index.mjs';
+import { createCheckpoint } from './checkpoint/index.mjs';
 import { executeTool } from './tools/executor.mjs';
 import { createExpressAdapter } from '../comm/express.mjs';
 import { createRawHttpAdapter } from '../comm/raw-http.mjs';
@@ -173,7 +174,7 @@ export async function startHost({
   const runJob = (task, { signal, onProgress, askUser, resumeFrom }) => settleWhenAborted(
     executeHostedTask(task, {
       api, activeDispatcher, toolRegistry, runLoopConfig, routerConfig, budgetsConfig, guardrailsMod, jobs, signal, onProgress, memory, logger,
-      askUser, resumeFrom,
+      askUser, resumeFrom, checkpoint,
     }),
     signal,
   );
@@ -209,12 +210,24 @@ export async function startHost({
     }
   }
 
+  // One checkpoint for the whole host: the strategies write it after each step
+  // for crash recovery, and a pause writes it on unwind. It lives in the
+  // memory store, so there is exactly one place to look.
+  const checkpoint = memory?.checkpointStore
+    ? createCheckpoint({
+        store: memory.checkpointStore,
+        logger: logger.child('checkpoint'),
+        kitVersion: (await kitInfo()).version,
+      })
+    : null;
+
   if (dispatchEnabled) {
     try {
       jobs = await createJobsBackend(dispatchConfig, {
         runJob, notifier, capacity: activeDispatcher.capacity,
         allowHttpCallbacks: notifyConfig.webhook.allowHttp, durableClient, getDurableClient,
         humanInput: humanInputConfig, kitVersion: (await kitInfo()).version,
+        checkpoint,
       });
       lateJobs.jobs = jobs;
       await jobs.start();

@@ -5,7 +5,7 @@ import { createSqliteStore } from './store/sqlite.mjs';
 
 export async function createJobsBackend(dispatchConfig, {
   runJob, notifier = null, logger = console, capacity = 1, allowHttpCallbacks = false, durableClient = null, getDurableClient = null,
-  humanInput = null, kitVersion = null,
+  humanInput = null, kitVersion = null, checkpoint = null,
 }) {
   if (dispatchConfig.backend === 'durable') {
     try {
@@ -26,7 +26,7 @@ export async function createJobsBackend(dispatchConfig, {
     ? createMemoryStore()
     : createSqliteStore({ dbPath: dispatchConfig.store.dbPath });
   return assertJobsBackend(createInProcessJobs({
-    store, runJob, notifier, logger, allowHttpCallbacks, humanInput, kitVersion,
+    store, runJob, notifier, logger, allowHttpCallbacks, humanInput, kitVersion, checkpoint,
     config: { ...dispatchConfig, capacity },
   }));
 }

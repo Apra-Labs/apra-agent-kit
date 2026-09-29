@@ -72,15 +72,18 @@ export async function createMemoryModule(memoryConfig, { notifier, fleetApi, log
     thresholds: ltConfig?.decay?.thresholds,
   });
 
-  let rsStore = null;
-  const rs = memoryConfig?.runState?.enabled
-    ? await (async () => {
-        rsStore = await resolveStore(memoryConfig.runState);
-        return createRunState({ ...memoryConfig.runState, store: rsStore, logger });
-      })()
-    : null;
-
   let ltmStore = null;
+
+  // Backs the run checkpoint — one record for crash recovery and for a pause.
+  // The adapter (filesystem, sqlite, cosmos) is the deployment's choice;
+  // nothing above this line knows or cares which.
+  //
+  // `memory.checkpoint` is the config block's name; `memory.runState` is still
+  // read so an existing config keeps working.
+  const cpConfig = memoryConfig?.checkpoint ?? memoryConfig?.runState ?? null;
+  const checkpointStore = cpConfig && cpConfig.enabled !== false
+    ? await resolveStore(cpConfig)
+    : null;
   const ltm = ltConfig?.enabled
     ? await (async () => {
         ltmStore = await resolveStore(ltConfig);
@@ -135,7 +138,7 @@ export async function createMemoryModule(memoryConfig, { notifier, fleetApi, log
   }
 
   return {
-    runState: rs,
+    checkpointStore,
     longTerm: ltm,
     learner,
     events,
@@ -143,7 +146,7 @@ export async function createMemoryModule(memoryConfig, { notifier, fleetApi, log
     conversationContext: cc,
 
     async open() {
-      if (rsStore) await rsStore.open();
+      if (checkpointStore) await checkpointStore.open();
       if (ltm) {
         await ltm.open();
         if (ltConfig?.preloadDir) {
@@ -165,11 +168,11 @@ export async function createMemoryModule(memoryConfig, { notifier, fleetApi, log
           logger.warn?.(`[memory] failed to close long-term memory: ${err?.message ?? err}`);
         }
       }
-      if (rsStore) {
+      if (checkpointStore) {
         try {
-          await rsStore.close();
+          await checkpointStore.close();
         } catch (err) {
-          logger.warn?.(`[memory] failed to close run-state store: ${err?.message ?? err}`);
+          logger.warn?.(`[memory] failed to close checkpoint store: ${err?.message ?? err}`);
         }
       }
       if (cc) {

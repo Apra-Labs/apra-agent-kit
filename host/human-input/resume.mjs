@@ -8,7 +8,7 @@
 // state the run comes back with, lives here so the two cannot drift apart.
 
 import { validateSubmission, isStale } from './batch.mjs';
-import { resumeState } from './snapshot.mjs';
+import { resumeState } from '../checkpoint/rebuild.mjs';
 import { answeredBatchesFromHistory } from './ask.mjs';
 
 // Refusal codes, and the HTTP status each maps to. Kept together so a new code
@@ -46,6 +46,8 @@ export function planResume(record, submission, {
   identity = null,
   kitVersion = null,
   now = new Date(),
+  loaded = null,
+  taskKey = null,
 } = {}) {
   if (!record) return refuse('not_found');
 
@@ -63,7 +65,14 @@ export function planResume(record, submission, {
   // enough to answer on somebody else's behalf. Trivially satisfied by today's
   // single-user chats — the check exists so that stays true if chats are ever
   // shared.
-  const owner = record.snapshot?.identity?.personId ?? null;
+  // Identity moved to the checkpoint when the record stopped carrying state.
+  // Reading it off `record.snapshot` silently returned null once that field
+  // was gone, which turned this check into a no-op — anyone could answer
+  // anyone's question. `metadata.identity` is the fallback, because a run that
+  // lost its checkpoint must still refuse the wrong person.
+  const owner = loaded?.checkpoint?.identity?.personId
+    ?? record.metadata?.identity?.personId
+    ?? null;
   if (owner && identity?.personId && identity.personId !== owner) {
     return refuse('not_your_job');
   }
@@ -79,7 +88,9 @@ export function planResume(record, submission, {
 
   const answeredBy = identity?.personId ?? submission.answeredBy ?? null;
 
-  const { source, state, reason } = resumeState(record, history, { kitVersion, now });
+  // The record carries only a pointer now, so the caller hands us what it
+  // loaded rather than us reading state off the record.
+  const { source, state, reason } = resumeState(loaded, history, { taskKey, jobId: record?.id, kitVersion, now });
 
   // Only the answer to the batch the run was parked on is replayed.
   //
@@ -132,13 +143,13 @@ function hasAnswerFor(history, batchId) {
  * question stays ungated; the run is told the question went unanswered and
  * settles from there.
  */
-export function planExpiry(record, history = [], { kitVersion = null, now = new Date() } = {}) {
+export function planExpiry(record, history = [], { kitVersion = null, now = new Date(), loaded = null, taskKey = null } = {}) {
   if (!record) return refuse('not_found');
   if (record.status !== 'waiting_input') return refuse('not_waiting', { jobStatus: record.status });
 
   const batch = record.pendingInput;
   if (!batch) return refuse('not_waiting', { jobStatus: record.status });
 
-  const { state } = resumeState(record, history, { kitVersion, now });
+  const { state } = resumeState(loaded, history, { taskKey, jobId: record?.id, kitVersion, now });
   return { ok: true, batch, resumeFrom: { ...state, answered: answeredBatchesFromHistory(history) } };
 }

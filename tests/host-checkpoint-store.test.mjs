@@ -166,3 +166,38 @@ test('idempotency on a run with no checkpoint answers false rather than throwing
 test('a checkpoint without a store is a wiring error, caught at construction', async () => {
   assert.throws(() => createCheckpoint({}), /requires a memory store/);
 });
+
+// ---------------------------------------------------------------------------
+// Against a real store
+// ---------------------------------------------------------------------------
+
+test('the entry is accepted by the real sqlite store, not just by a double', async () => {
+  // Regression. The double above accepts any object, so a partial entry passed
+  // every test here and then failed at insert with "Provided value cannot be
+  // bound to SQLite parameter 7" — a checkpoint that could never be written,
+  // which made every pause fail.
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const fs = await import('node:fs/promises');
+  const { createSqliteStore } = await import('../host/memory/store/sqlite.mjs');
+
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'cp-sqlite-'));
+  const store = createSqliteStore({ dbPath: path.join(dir, 'memory.db') });
+  await store.open();
+
+  try {
+    const cp = createCheckpoint({ store, logger: { warn() {} } });
+    assert.equal(await cp.save('cp-job-1', fields()), true, 'the real store accepted it');
+
+    const out = await cp.load('cp-job-1');
+    assert.equal(out.ok, true);
+    assert.equal(out.checkpoint.strategy, 'plan-execute');
+
+    // And an update path, which takes a different code path to the insert.
+    assert.equal(await cp.save('cp-job-1', { ...fields(), plan: { steps: ['a'], cursor: 2 } }), true);
+    assert.equal((await cp.load('cp-job-1')).checkpoint.plan.cursor, 2);
+  } finally {
+    await store.close();
+    await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+});

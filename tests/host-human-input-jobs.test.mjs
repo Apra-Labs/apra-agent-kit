@@ -15,6 +15,25 @@ const { createMemoryStore } = await import('../host/jobs/store/memory.mjs');
 const { supportsHumanInput } = await import('../host/jobs/interface.mjs');
 const { createBatch } = await import('../host/human-input/batch.mjs');
 const { TERMINAL_STATUSES } = await import('../host/jobs/record.mjs');
+const { createCheckpoint } = await import('../host/checkpoint/index.mjs');
+
+// A checkpoint backed by an in-memory store. humanInput now requires memory —
+// a paused run stores its state there — so every backend that can park needs
+// one wired.
+function testCheckpoint() {
+  const rows = new Map();
+  return createCheckpoint({
+    store: {
+      async open() {}, async close() {},
+      async store(e) { rows.set(e.id, e); },
+      async get(id) { return rows.get(id) ?? null; },
+      async update(id, p) { rows.set(id, { ...rows.get(id), ...p }); },
+      async remove(id) { rows.delete(id); },
+      async query() { return []; }, async purge() {}, async count() { return rows.size; },
+    },
+    logger: { warn() {} },
+  });
+}
 
 const BASE = {
   maxQueueSize: 10, concurrency: 1, leaseTimeoutMs: 60_000,
@@ -59,10 +78,11 @@ function makeAskingRunner({ questions = approvalQuestions, askedBy = 'agent' } =
   return { runJob, calls };
 }
 
-async function setup({ overrides = {}, runner, humanInput = { enabled: true } } = {}) {
+async function setup({ overrides = {}, runner, humanInput = { enabled: true }, checkpoint = null } = {}) {
   const store = createMemoryStore();
   const published = [];
   const jobs = createInProcessJobs({
+    checkpoint: checkpoint ?? testCheckpoint(),
     store,
     runJob: runner.runJob,
     notifier: { publish: (e) => published.push(e) },
@@ -118,16 +138,23 @@ test('park: a run that asks a question lands in waiting_input with its batch', a
   await jobs.stop({ drainMs: 0 });
 });
 
-test('park: the snapshot records where the run had got to', async () => {
-  const { jobs } = await setup({ runner: makeAskingRunner() });
+test('park: the checkpoint records where the run had got to', async () => {
+  // The job record used to carry this. It now carries a pointer, and the
+  // state lives in the checkpoint — one place to look, one writer.
+  const checkpoint = testCheckpoint();
+  const { jobs } = await setup({ runner: makeAskingRunner(), checkpoint });
   const { jobId } = await jobs.submit({ goal: 'book a flight' });
   const record = await waitForStatus(jobs, jobId, 'waiting_input');
 
-  assert.equal(record.snapshot.version, 1);
-  assert.equal(record.snapshot.pendingBatchId, record.pendingInput.batchId);
-  assert.deepEqual(record.snapshot.plan, { steps: ['search', 'book'], cursor: 1 });
-  assert.equal(record.snapshot.observations.length, 1);
-  assert.equal(record.snapshot.interruptions, 1, 'the counter must survive the pause');
+  assert.equal(record.snapshot, null, 'no state on the record');
+  assert.equal(record.pendingBatchId, record.pendingInput.batchId, 'a pointer is');
+
+  const cp = (await checkpoint.load(`cp-${jobId}`)).checkpoint;
+  assert.equal(cp.version, 1);
+  assert.equal(cp.pendingBatchId, record.pendingInput.batchId);
+  assert.deepEqual(cp.plan, { steps: ['search', 'book'], cursor: 1 });
+  assert.equal(cp.observations.length, 1);
+  assert.equal(cp.interruptions, 1, 'the counter must survive the pause');
 
   await jobs.stop({ drainMs: 0 });
 });
@@ -179,6 +206,7 @@ test('park: if the question cannot be stored, the run fails rather than continui
   const runner = makeAskingRunner();
   const store = createMemoryStore();
   const jobs = createInProcessJobs({
+    checkpoint: testCheckpoint(),
     store, runJob: runner.runJob, config: BASE, logger: { warn() {}, info() {} },
     humanInput: { enabled: true },
   });
@@ -360,14 +388,17 @@ test('refuse: an answer from someone else is refused - a batch id is not a capab
   };
 
   const store = createMemoryStore();
+  const cp = testCheckpoint();
   const jobs = createInProcessJobs({
+    checkpoint: cp,
     store, runJob, config: BASE, logger: { warn() {}, info() {} }, humanInput: { enabled: true },
   });
   await jobs.start();
 
   const { jobId } = await jobs.submit({ goal: 'book' }, { metadata: { identity: { personId: 'person-owner' } } });
   const parked = await waitForStatus(jobs, jobId, 'waiting_input');
-  assert.equal(parked.snapshot.identity.personId, 'person-owner');
+  const owner = (await cp.load(`cp-${jobId}`)).checkpoint.identity;
+  assert.equal(owner.personId, 'person-owner', 'identity lives in the checkpoint now');
 
   const res = await jobs.provideInput(jobId,
     { batchId: parked.pendingInput.batchId, answers: { proceed: 'approve' } },

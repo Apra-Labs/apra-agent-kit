@@ -11,6 +11,25 @@ import { setTimeout as sleep } from 'node:timers/promises';
 const { createQuestionSweep, DEFAULT_SWEEP_INTERVAL_MS } = await import('../host/human-input/sweep.mjs');
 const { createInProcessJobs } = await import('../host/jobs/in-process.mjs');
 const { createMemoryStore } = await import('../host/jobs/store/memory.mjs');
+const { createCheckpoint } = await import('../host/checkpoint/index.mjs');
+
+// A checkpoint backed by an in-memory store. humanInput now requires memory —
+// a paused run stores its state there — so every backend that can park needs
+// one wired.
+function testCheckpoint() {
+  const rows = new Map();
+  return createCheckpoint({
+    store: {
+      async open() {}, async close() {},
+      async store(e) { rows.set(e.id, e); },
+      async get(id) { return rows.get(id) ?? null; },
+      async update(id, p) { rows.set(id, { ...rows.get(id), ...p }); },
+      async remove(id) { rows.delete(id); },
+      async query() { return []; }, async purge() {}, async count() { return rows.size; },
+    },
+    logger: { warn() {} },
+  });
+}
 
 const hoursFromNow = (h) => new Date(Date.now() + h * 3_600_000).toISOString();
 
@@ -199,6 +218,7 @@ test('sweep: end to end against the in-process backend', async () => {
   };
 
   const jobs = createInProcessJobs({
+    checkpoint: testCheckpoint(),
     store, runJob, humanInput: { enabled: true },
     config: { maxQueueSize: 10, concurrency: 1, leaseTimeoutMs: 60_000, retentionMs: 86_400_000, drainMs: 100, capacity: 1 },
     logger: { warn() {}, info() {} },
@@ -245,6 +265,7 @@ test('sweep: marking stale through the backend is recorded once', async () => {
   };
 
   const jobs = createInProcessJobs({
+    checkpoint: testCheckpoint(),
     store, runJob, humanInput: { enabled: true },
     config: { maxQueueSize: 10, concurrency: 1, leaseTimeoutMs: 60_000, retentionMs: 86_400_000, drainMs: 100, capacity: 1 },
     logger: { warn() {}, info() {} },

@@ -43,6 +43,10 @@ export function createCheckpoint({ store, logger = console, kitVersion = null } 
       if (existing) {
         await store.update(taskKey, { text });
       } else {
+        // The full memory-entry shape. A partial one binds undefined to the
+        // sqlite store's columns and fails at insert; the retired run-state
+        // supplied all of these, and so must this.
+        const nowIso = new Date().toISOString();
         await store.store({
           id: taskKey,
           kind: 'procedure',
@@ -50,6 +54,18 @@ export function createCheckpoint({ store, logger = console, kitVersion = null } 
           tags: [TAG],
           source: 'system',
           confidence: 1.0,
+          storageStrength: 1.0,
+          retrievalStrength: 1.0,
+          state: 'active',
+          stability: 1.0,
+          difficulty: 0,
+          reps: 0,
+          lapses: 0,
+          lastPromotedAt: nowIso,
+          lastReviewRating: null,
+          createdAt: nowIso,
+          lastUsedAt: null,
+          useCount: 0,
           metadata: { type: 'checkpoint', taskKey },
         });
       }
