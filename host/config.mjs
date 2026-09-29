@@ -191,16 +191,10 @@ function validate(raw, env) {
   modules.notify = notify;
 
   const humanInput = resolveHumanInputConfig(modules.humanInput, { env });
-  if (humanInput.enabled && !modules.dispatch?.enabled) {
-    // A warning, not an error. There is nowhere to park a run on the
-    // synchronous `/task?wait=true` path, so the feature simply does not
-    // engage and guardrails behave exactly as they do today -- which is safe,
-    // just not what the adopter asked for.
-    console.warn(
-      '[host/config] humanInput enabled but dispatch disabled - there is nowhere to park a paused run; guardrails will deny irreversible tools as before',
-    );
-  }
   modules.humanInput = humanInput;
+  // Refuses a configuration that cannot work, rather than warning and failing
+  // at the first question days later.
+  assertHumanInputDependencies(modules);
 
   const chat = resolveChatConfig(modules.chat, { env, name: raw.name });
   if (chat.enabled) {
@@ -266,4 +260,60 @@ export function resolveHumanInputConfig(raw, { env = {} } = {}) {
   }
 
   return Object.freeze(out);
+}
+
+/**
+ * A startup failure reason that is safe to put in an exception.
+ *
+ * A memory-store failure routinely carries a connection string, an endpoint,
+ * a SAS token or a file path. That belongs in the operator's log — where it is
+ * needed to diagnose — and never in an exception, which may be rendered to a
+ * screen, posted to an error tracker, or returned over HTTP.
+ *
+ * The error's *name* survives, because "which kind of failure" is useful and
+ * carries nothing. "Which host, which key, which path" is the part that does.
+ */
+export function describeStartupFailure(cause) {
+  const kind = cause?.name && cause.name !== 'Error' ? ` (${cause.name})` : '';
+  return `the memory store could not be opened${kind} — see the host log for the underlying cause`;
+}
+
+/**
+ * Human input has no graceful degrade: a paused run needs somewhere to park
+ * and somewhere to put a checkpoint.
+ *
+ * Called twice — once on the configuration, once after the memory module has
+ * actually opened. The second is the sharper case, because the configuration
+ * is correct and only the store is unreachable, so nobody is looking for a
+ * mistake.
+ *
+ * @param {object} modules
+ * @param {object} [opts]
+ * @param {boolean} [opts.memoryStarted] false when memory is configured but failed to open
+ */
+export function assertHumanInputDependencies(modules, { memoryStarted = true, cause = null } = {}) {
+  if (!modules?.humanInput?.enabled) return;
+
+  if (!modules.dispatch?.enabled) {
+    throw new Error(
+      'humanInput requires dispatch — there is nowhere to park a paused run on the synchronous ' +
+      '/task?wait=true path. Enable modules.dispatch or disable modules.humanInput.',
+    );
+  }
+
+  if (!modules.memory || modules.memory.enabled === false) {
+    throw new Error(
+      'humanInput requires memory — a paused run stores its checkpoint in the memory store. ' +
+      'Enable modules.memory or disable modules.humanInput.',
+    );
+  }
+
+  if (!memoryStarted) {
+    // Deliberately does not quote `cause`. See describeStartupFailure.
+    throw new Error(
+      `modules.humanInput is enabled but ${describeStartupFailure(cause)}. ` +
+      'A paused run would have nowhere to store its checkpoint, and the failure would surface at ' +
+      'the first question rather than here. Fix the memory store or disable modules.humanInput.',
+    );
+  }
 }

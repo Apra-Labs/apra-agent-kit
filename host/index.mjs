@@ -5,7 +5,7 @@ import { buildMcpServer } from '../mcp/server.mjs';
 import { authenticateRequest as defaultAuthenticate } from '../mcp/auth.mjs';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import { createPooledFleetApi } from '../pool/pooled-fleet-api.mjs';
-import { loadConfig, resolveChatConfig, resolveHumanInputConfig } from './config.mjs';
+import { loadConfig, resolveChatConfig, resolveHumanInputConfig, assertHumanInputDependencies } from './config.mjs';
 import { extendRegistry, withJobTools, withMemoryTools } from './tools/registry.mjs';
 import { createMemoryModule } from './memory/index.mjs';
 import { createCheckpoint } from './checkpoint/index.mjs';
@@ -166,6 +166,7 @@ export async function startHost({
   let jobs = null;
   let memory = null;
   let scheduler = null;
+  let memoryStartError = null;
   const runSync = (task, { signal } = {}) => executeHostedTask(task, {
     api, activeDispatcher, toolRegistry, runLoopConfig, routerConfig, budgetsConfig, guardrailsMod, jobs, signal, memory, logger,
   });
@@ -204,11 +205,21 @@ export async function startHost({
       await memory.open();
       if (memory?.longTerm) toolRegistry.push(...withMemoryTools([], memory.longTerm, memory.events));
     } catch (err) {
-      console.warn(`[host] memory module failed to start — continuing without memory: ${err?.message ?? err}`);
+      // The full cause goes to the log, where an operator needs it to
+      // diagnose. It never reaches the exception below — a store failure
+      // routinely carries a connection string, endpoint or file path.
+      logger.error?.(`[host] memory module failed to start: ${err?.message ?? err}`);
+      logger.warn?.('[host] continuing without memory — recall and learning are unavailable');
       try { await memory?.close(); } catch { /* memory failures never halt the host */ }
       memory = null;
+      memoryStartError = err;
     }
   }
+
+  // Fatal only when human input is on: without memory a paused run has nowhere
+  // to put its checkpoint, and the failure would otherwise surface at the first
+  // question rather than here.
+  assertHumanInputDependencies(config.modules, { memoryStarted: memory !== null, cause: memoryStartError });
 
   // One checkpoint for the whole host: the strategies write it after each step
   // for crash recovery, and a pause writes it on unwind. It lives in the
