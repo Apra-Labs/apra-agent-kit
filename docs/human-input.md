@@ -187,17 +187,29 @@ Two records, and only one of them is the truth.
 **History** is append-only and never edited: what was planned, which steps ran and what they
 returned, what was asked, what was answered. It is the only thing a resume genuinely needs.
 
-**The snapshot** is a cache written at each pause so a normal resume is one read rather than a full
-replay. If it is absent, unreadable, or written at an incompatible `version`, it is rebuilt from
-history and the run continues. An incompatible version is refused rather than coerced: a different
-build may have meant something different by the same field name, and resuming on a misread plan
-cursor re-executes work that already happened.
+**The checkpoint** is a cache written as the run goes and again at each pause, so a normal resume is
+one read rather than a full replay. If it is absent, unreadable, or written at an incompatible
+`version`, it is rebuilt from history and the run continues. An incompatible version is refused
+rather than coerced: a different build may have meant something different by the same field name,
+and resuming on a misread plan cursor re-executes work that already happened.
 
-Nothing may exist only in the snapshot. A test deletes it and requires an identical resume.
+There is one checkpoint, not a separate crash-recovery record and pause snapshot. A crash and a
+question leave the run in the same place — part-way through, with work already done that must not be
+done twice — so they are one record with one writer.
+
+Nothing may exist only in the checkpoint. A test deletes it and requires an identical resume.
 
 Credentials are never written. `identity` records *who* the work is for, never the bearer that proves
 it — these records live for days, and a resumed run re-acquires authority the same way a fresh one
 does.
+
+### `humanInput` requires `memory`
+
+The checkpoint is stored through the memory module, so a host with `humanInput` enabled and `memory`
+disabled cannot pause. That combination is **refused at startup** rather than failing at the first
+question, hours in, with the run already part-way through. A memory store that is configured but
+cannot be opened is refused the same way — the error names the failure but never the connection
+string or any other environment value.
 
 ### Answers replay in order
 
@@ -285,7 +297,7 @@ irreversible there is nothing for the guardrail to stop.
 The orchestration **ends at the pause**. It does not wait.
 
 ```
-activity returns { status: 'paused', batch, snapshot, history }
+activity saves the checkpoint, returns { status: 'paused', batch, taskKey }
   → orchestrator sets a small customStatus marker
   → orchestration COMPLETES, output carries the state
   → POST /jobs/:id/input starts a NEW orchestration seeded with it
@@ -305,11 +317,17 @@ orchestrations will destroy it, and its output is the only copy of its state.
 younger than `expiresAt + graceDays`, so a broken question sweep cannot shield
 records forever.
 
-**Durable caps an output at 16 KB.** A finished result can be trimmed, because
-the full text already went out over SSE. A paused snapshot cannot — it would
-rebuild into something wrong — so a pause that does not fit **fails the run**
-with `pause_too_large` rather than truncating. Set `dispatch.store.kind` to
-`cosmos` to keep job state outside the task hub.
+**Durable caps an output at 16 KB.** This used to bound how long a run could get
+before it became unable to pause, because the whole snapshot travelled in the
+orchestration output. It no longer does: the state goes to the memory store and
+the output carries only a key, so the cap is not a limit an adopter can reach.
+The `pause_too_large` guard remains as an assertion — if it ever fires,
+something has started putting state back in the output, and failing loudly
+beats truncating a pointer into nonsense.
+
+On Functions the memory store must therefore be one the host can reach from the
+activity — `cosmos`, not the VM's sqlite file. Set `dispatch.store.kind` to
+`cosmos` to keep job state outside the task hub as well.
 
 ## Storage and retention
 

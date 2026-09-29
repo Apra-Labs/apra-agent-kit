@@ -141,27 +141,29 @@ tool's name.
 
 ## 4d. Credentials are never persisted
 
-A paused run's snapshot records `identity` — who the work is for — and never the bearer that proves
+A run's checkpoint records `identity` — who the work is for — and never the bearer that proves
 it. These records live for days. A resumed run re-acquires authority the same way a fresh run does.
 
 `identity` is allow-listed (`personId`, `tenantId`) rather than filtered, because a filter only
-removes the credential shapes somebody thought of. Everything else written to a snapshot is passed
-through a scrub that drops credential-shaped keys at every depth.
+removes the credential shapes somebody thought of. Everything else written to a checkpoint is
+passed through a scrub that drops credential-shaped keys at every depth.
 
-**Must hold:** no token, cookie, key or password survives `capture()`.
+**Must hold:** no token, cookie, key or password survives a checkpoint save.
 
 ---
 
-## 4e. The snapshot is a cache, and history is the truth
+## 4e. The checkpoint is a cache, and history is the truth
 
-A resume reads the snapshot when it can and rebuilds from history when it cannot — absent,
-unreadable, or written at an incompatible `version`. Nothing may exist only in the snapshot.
+One checkpoint serves both crash recovery and a pause; there is no separate snapshot record.
+
+A resume reads the checkpoint when it can and rebuilds from history when it cannot — absent,
+unreadable, or written at an incompatible `version`. Nothing may exist only in the checkpoint.
 
 An incompatible version is **refused, not coerced**. A different build may have meant something
 different by the same field name, and resuming on a misread plan cursor re-executes work that
 already happened.
 
-**Must hold:** deleting a snapshot and resuming from history produces the same state. History is
+**Must hold:** deleting a checkpoint and resuming from history produces the same state. History is
 never ring-buffered — `ringEvents()` exists for the size-capped Azure `customStatus` view only.
 
 ---
