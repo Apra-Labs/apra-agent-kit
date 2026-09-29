@@ -34,7 +34,7 @@ These are live in the kit today.
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| `npm create` — npm registry publish | Done | Published as `@apralabs/create-fleet-agent`. Install via `npm create @apralabs/fleet-agent`. |
+| `npm create` — npm registry publish | Done | Published as `@apralabs/create-agent-kit`. Install via `npm create @apralabs/agent-kit`. |
 
 ## Next Up — Phase 3: Memory + Eval
 

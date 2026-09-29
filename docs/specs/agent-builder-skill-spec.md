@@ -4,7 +4,7 @@
 **Status**: Proposed
 **Scope**: New Claude skill shipping with the Kit — interview, spec generation, implementation plan handoff
 **Issue**: [#53](https://github.com/Apra-Labs/apra-agent-kit/issues/53)
-**Depends on**: [#29](https://github.com/Apra-Labs/apra-agent-kit/pull/29) (`npm create @apralabs/fleet-agent`)
+**Depends on**: [#29](https://github.com/Apra-Labs/apra-agent-kit/pull/29) (`npm create @apralabs/agent-kit`)
 
 ## Problem
 
@@ -43,7 +43,7 @@ Write a spec, delegate to a sprint (Fleet Sprint or superpowers), get a complete
 │   └── kit-file-conventions.md           # Maps spec sections → concrete Kit files
 ```
 
-Ships in the Kit repo. When `npm create @apralabs/fleet-agent` scaffolds a project, these files are included in the template so every new project gets the skill.
+Ships in the Kit repo. When `npm create @apralabs/agent-kit` scaffolds a project, these files are included in the template so every new project gets the skill.
 
 ### Phase Flow
 
@@ -59,7 +59,7 @@ Developer invokes /agent-builder
                     ▼
 ┌─ Phase 0.5: Scaffold ────────────────────────┐
 │  Ask agent name (first wizard question)       │
-│  npm create @apralabs/fleet-agent <name>   │
+│  npm create @apralabs/agent-kit <name>   │
 │  cd into new project folder                   │
 │  Run doctor check                             │
 │  (Skip if project folder already exists)      │
@@ -114,7 +114,7 @@ Triggered when no Kit project exists or the developer is starting fresh.
 
 1. **Ask agent name** — first wizard question, pulled forward because the folder name depends on it. Validates using the same npm name rules as `create/substitute.mjs` (non-empty, max 214 chars, no leading `.` or `_`).
 
-2. **Run scaffold** — `npm create @apralabs/fleet-agent <agent-name>`. This creates `./<agent-name>/` with the full starter project (hello workflow, starter registry, Dockerfile, docker-compose, tests).
+2. **Run scaffold** — `npm create @apralabs/agent-kit <agent-name>`. This creates `./<agent-name>/` with the full starter project (hello workflow, starter registry, Dockerfile, docker-compose, tests).
 
 3. **Change working directory** — all subsequent work happens inside the scaffolded project.
 

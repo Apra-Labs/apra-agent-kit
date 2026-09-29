@@ -1,4 +1,4 @@
-# Create command — `npm create @apralabs/fleet-agent`
+# Create command — `npm create @apralabs/agent-kit`
 
 Status: agreed — design approved 2026-09-17, implementation pending.
 
@@ -39,7 +39,7 @@ free of this repo's history and demo clutter, carrying one starter workflow to
 copy, with local prerequisites either installed or precisely reported.
 
 ```
-npm create @apralabs/fleet-agent my-agent
+npm create @apralabs/agent-kit my-agent
 ```
 
 ## Non-goals
@@ -58,7 +58,7 @@ npm create @apralabs/fleet-agent my-agent
 ## User experience
 
 ```
-$ npm create @apralabs/fleet-agent my-agent
+$ npm create @apralabs/agent-kit my-agent
 
   Creating my-agent…
   ✓ copied kit (mcp, pool, host, transport, comm)
@@ -87,7 +87,7 @@ $ npm create @apralabs/fleet-agent my-agent
 
 | Form | Behaviour |
 |---|---|
-| `npm create @apralabs/fleet-agent my-agent` | Generate into `./my-agent` |
+| `npm create @apralabs/agent-kit my-agent` | Generate into `./my-agent` |
 | no directory argument | Prompt for a project name |
 | `--no-install` | Copy and substitute only; run no npm, no git, no prompts |
 | `--yes` | Accept every prompt without asking |
@@ -133,9 +133,9 @@ user to make their own.
 
 ## Distribution and packaging
 
-The package is `@apralabs/create-fleet-agent`, published under the user's
+The package is `@apralabs/create-agent-kit`, published under the user's
 personal npm scope with `npm publish --access public` (scoped packages default
-to restricted). The name is what makes `npm create @apralabs/fleet-agent`
+to restricted). The name is what makes `npm create @apralabs/agent-kit`
 resolve.
 
 Packaging obeys two rules and requires no build step.
@@ -305,7 +305,7 @@ reimplementation. The shared helpers it uses (`toolsDir`, `shellEscape`,
 2. **Published to npm rather than run from GitHub.** `npx github:…` was viable
    and needs no publish, but a published scoped package gives one documented
    path and a version users deliberately received. `npm create` resolves
-   `@apralabs/fleet-agent` to `@apralabs/create-fleet-agent`.
+   `@apralabs/agent-kit` to `@apralabs/create-agent-kit`.
 
 3. **No build step; `files` is the manifest.** An earlier design proposed a
    prepublish assembly stage driven by a custom manifest module. npm's `files`
@@ -337,7 +337,7 @@ reimplementation. The shared helpers it uses (`toolsDir`, `shellEscape`,
    state.
 
 9. **The doctor is copied out, not imported.** A generated project declares no
-   dependency on `@apralabs/create-fleet-agent`, so `scripts/doctor.mjs`
+   dependency on `@apralabs/create-agent-kit`, so `scripts/doctor.mjs`
    cannot import from it — it is copied at generate time from
    `create/doctor.mjs` to `scripts/doctor.mjs`, the one file written to a path
    other than its source. This keeps a single copy in the repository, driving
@@ -396,14 +396,14 @@ depend on what is installed on the machine running them.
 
 ### Flag forwarding
 
-The package is not published, so `npm create @apralabs/fleet-agent` could not
+The package is not published, so `npm create @apralabs/agent-kit` could not
 be exercised end-to-end here. Flag forwarding was verified from the packed
 tarball instead:
 
 ```bash
 npm pack
-npm i -g --prefix ~/.local ./apralabs-create-fleet-agent-0.1.0.tgz
-cd /tmp && create-fleet-agent flag-check --no-install --yes
+npm i -g --prefix ~/.local ./apralabs-create-agent-kit-0.1.0.tgz
+cd /tmp && create-agent-kit flag-check --no-install --yes
 ```
 
 Result: `/tmp/flag-check` was generated with no `node_modules` and no `.git`,
@@ -418,7 +418,7 @@ comparing `fs.realpathSync` of both paths. Re-packed and re-ran the commands
 above; the global bin then behaved correctly.
 
 Once published, if npm consumes flags before the bin sees them, the separator
-form remains the fallback: `npm create @apralabs/fleet-agent my-agent --
+form remains the fallback: `npm create @apralabs/agent-kit my-agent --
 --no-install`.
 
 ### Generated Docker image

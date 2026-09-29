@@ -10,7 +10,7 @@ The memory system (long-term memory, run state, conversation context, memory
 tools, FSRS-6 decay, dedup, preloading, store adapters) is fully implemented
 in the kit but invisible to two critical developer-facing surfaces:
 
-1. **`npm create @apralabs/fleet-agent`** — the scaffold template that every
+1. **`npm create @apralabs/agent-kit`** — the scaffold template that every
    new project starts from. It ships `host.config.mjs` with no `modules` block,
    a `.gitignore` that doesn't mention `memory/`, and a README that doesn't
    mention memory capabilities. A developer who scaffolds a project has no idea
@@ -399,7 +399,7 @@ tier is being removed.
 
 ## Acceptance Criteria
 
-- [ ] `npm create @apralabs/fleet-agent test-agent` produces a project
+- [ ] `npm create @apralabs/agent-kit test-agent` produces a project
       with a `host.config.mjs` containing a commented-out `memory` module
       block with all three tiers documented
 - [ ] The scaffolded `.gitignore` includes `memory/*.db` patterns

@@ -4,7 +4,7 @@
 
 **Goal:** Ship a Claude skill that guides any developer from "I have an idea" to a complete agent spec + implementation plan, scaffolding a Kit project along the way.
 
-**Architecture:** Three files in `.claude/skills/agent-builder/`: an orchestrator `SKILL.md` that runs five phases (prerequisites → scaffold → interview → spec → plan → handoff), a blank spec template `references/agent-spec-template.md`, and a file-conventions reference `references/kit-file-conventions.md`. The skill delegates to `brainstorming` and `writing-plans` superpowers skills and installs them if absent. It also needs to ship inside the `template/` used by `npm create @apralabs/fleet-agent` so scaffolded projects include it.
+**Architecture:** Three files in `.claude/skills/agent-builder/`: an orchestrator `SKILL.md` that runs five phases (prerequisites → scaffold → interview → spec → plan → handoff), a blank spec template `references/agent-spec-template.md`, and a file-conventions reference `references/kit-file-conventions.md`. The skill delegates to `brainstorming` and `writing-plans` superpowers skills and installs them if absent. It also needs to ship inside the `template/` used by `npm create @apralabs/agent-kit` so scaffolded projects include it.
 
 **Tech Stack:** Claude Code skill system (SKILL.md + references/), Node.js (for `npm create` scaffolding), `apra-fleet` CLI (for status/doctor checks).
 
@@ -505,7 +505,7 @@ Validate: non-empty, max 214 chars, no leading `.` or `_`, matches
 Then scaffold:
 
 ```bash
-npm create @apralabs/fleet-agent <agent-name>
+npm create @apralabs/agent-kit <agent-name>
 ```
 
 Change working directory into `./<agent-name>/`.
@@ -886,7 +886,7 @@ a complete working agent — not just config — in 1-2 days.
 ## Flow
 
 1. **Prerequisites (Phase 0)** — Checks Kit project, installs superpowers if missing, verifies Fleet
-2. **Scaffold (Phase 0.5)** — Runs `npm create @apralabs/fleet-agent <name>`
+2. **Scaffold (Phase 0.5)** — Runs `npm create @apralabs/agent-kit <name>`
 3. **Interview (Phase 1)** — Hybrid wizard + Socratic grilling
 4. **Spec Generation (Phase 2)** — Fills agent-spec-template, writes to docs/specs/
 5. **Implementation Plan (Phase 3)** — Invokes writing-plans, writes to docs/plans/
@@ -894,7 +894,7 @@ a complete working agent — not just config — in 1-2 days.
 
 ## Depends On
 
-- #29 (`npm create @apralabs/fleet-agent`) for scaffolding and template distribution
+- #29 (`npm create @apralabs/agent-kit`) for scaffolding and template distribution
 EOF
 )"
 ```

@@ -85,7 +85,7 @@ Validate: non-empty, max 214 chars, no leading `.` or `_`, matches
 Then scaffold:
 
 ```bash
-npm create @apralabs/fleet-agent <agent-name>
+npm create @apralabs/agent-kit <agent-name>
 ```
 
 Change working directory into `./<agent-name>/`.

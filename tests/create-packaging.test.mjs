@@ -20,7 +20,7 @@ function packedFiles() {
 }
 
 test('the package is named so that npm create resolves it', () => {
-  assert.equal(pkg.name, '@apralabs/create-fleet-agent');
+  assert.equal(pkg.name, '@apralabs/create-agent-kit');
 });
 
 test('the package is publishable', () => {
@@ -29,7 +29,7 @@ test('the package is publishable', () => {
 });
 
 test('the bin points at the CLI', () => {
-  assert.equal(pkg.bin['create-fleet-agent'], 'bin/create.mjs');
+  assert.equal(pkg.bin['create-agent-kit'], 'bin/create.mjs');
   assert.ok(fs.existsSync(path.join(repoRoot, 'bin/create.mjs')));
 });
 

@@ -28,7 +28,7 @@
 Scaffold a new agent project:
 
 ```bash
-npm create @apralabs/fleet-agent my-agent
+npm create @apralabs/agent-kit my-agent
 cd my-agent
 ```
 

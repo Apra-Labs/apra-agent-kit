@@ -701,7 +701,7 @@ Section 1. For scripted evals, create fleet script JSON files in
 ```json
 {
   "scripts": {
-    "eval": "node node_modules/@apralabs/create-fleet-agent/evals/runner.mjs"
+    "eval": "node node_modules/@apralabs/create-agent-kit/evals/runner.mjs"
   }
 }
 ```
@@ -721,7 +721,7 @@ evals/reports/
 Users can also import the runner for custom eval scripts:
 
 ```js
-import { runSuite } from '@apralabs/create-fleet-agent/evals/runner.mjs';
+import { runSuite } from '@apralabs/create-agent-kit/evals/runner.mjs';
 
 const report = await runSuite('my-suite', {
   configDir: '.',
@@ -741,8 +741,8 @@ agents can import them directly:
 
 | Export path | What it provides |
 |---|---|
-| `@apralabs/create-fleet-agent/evals/runner.mjs` | `runSuite()`, `runAllSuites()` |
-| `@apralabs/create-fleet-agent/evals/graders/index.mjs` | `resolveGrader()` |
+| `@apralabs/create-agent-kit/evals/runner.mjs` | `runSuite()`, `runAllSuites()` |
+| `@apralabs/create-agent-kit/evals/graders/index.mjs` | `resolveGrader()` |
 
 These are added to the `"files"` array in the kit's `package.json` so they
 ship with the npm package.
@@ -751,7 +751,7 @@ ship with the npm package.
 
 ## 10. Create Command Integration (Agent Scaffolding)
 
-When a new agent is created via `npm create @apralabs/fleet-agent my-agent`
+When a new agent is created via `npm create @apralabs/agent-kit my-agent`
 or the `agent-builder` skill, the generated project ships with eval
 scaffolding out of the box.
 
@@ -815,7 +815,7 @@ A minimal eval suite that tests the hello workflow the template already ships:
 ```json
 {
   "scripts": {
-    "eval": "node node_modules/@apralabs/create-fleet-agent/evals/runner.mjs"
+    "eval": "node node_modules/@apralabs/create-agent-kit/evals/runner.mjs"
   }
 }
 ```
