@@ -1,5 +1,6 @@
 // host/strategies/plan-execute.mjs
 import { parseResponse } from '../response-parser.mjs';
+import { checkpointKey } from '../checkpoint/record.mjs';
 import {
   buildSystemPrompt, buildPlanPrompt, buildReviewPrompt, buildStepReviewPrompt,
   buildResolveArgsPrompt, buildReasonPrompt, buildReplanPrompt, buildExecutePrompt,
@@ -38,13 +39,18 @@ export function createPlanExecuteStrategy({
   conversation,
   askUser = undefined,
   resumeFrom = null,
+  checkpoint = null,
 }) {
   const systemPrompt = buildSystemPrompt({ agentName, agentDescription, memories, conversation });
   const toolCatalog = formatTools(tools);
   // Seeded on a resume; the empty array it has always been otherwise. A
   // run-state checkpoint may append to it further down.
   const observations = resumeFrom?.observations ? [...resumeFrom.observations] : [];
-  const taskKey = task.id ?? task.goal;
+  // One key, from one place. The retired run-state used `task.id ?? task.goal`,
+  // so two concurrent runs of the same goal shared a row and clobbered each
+  // other. A task with no id cannot be checkpointed at all — see checkpointKey.
+  let taskKey = null;
+  try { taskKey = checkpointKey(task); } catch { taskKey = null; }
 
   // Where a pause left off, updated as execution advances, so `progress()`
   // reports the truth at whatever moment the run happens to unwind.
@@ -92,43 +98,47 @@ export function createPlanExecuteStrategy({
     let resumeStart = 0;
     let resumePending = false;
 
-    if (memory?.runState) {
-      try {
-        const checkpoint = await memory.runState.load(taskKey);
-        if (checkpoint) {
-          if (Number.isInteger(checkpoint.stepIndex)) resumeStart = checkpoint.stepIndex;
-          if (checkpoint.plan) {
-            currentPlan = checkpoint.plan;
-            resumePending = true;
-          }
-          for (const obs of checkpoint.observations ?? []) remember(obs);
-          idempotencyKeys = new Set(checkpoint.idempotencyKeys ?? []);
+    if (checkpoint && taskKey) {
+      const loaded = await checkpoint.load(taskKey);
+      if (loaded.ok) {
+        const cp = loaded.checkpoint;
+        // The cursor is `plan.cursor` now, not `stepIndex`. One name for one
+        // fact, shared with the pause path.
+        if (Number.isInteger(cp.plan?.cursor)) resumeStart = cp.plan.cursor;
+        if (cp.plan?.steps?.length) {
+          currentPlan = { ...cp.plan, steps: cp.plan.steps };
+          resumePending = true;
         }
-      } catch (err) {
-        console.warn(`[host] run-state load failed — continuing: ${err?.message ?? err}`);
+        for (const obs of cp.observations ?? []) remember(obs);
+        idempotencyKeys = new Set(cp.idempotencyKeys ?? []);
       }
     }
 
     async function saveCheckpoint(stepIndex, idempotencyKey) {
-      if (!memory?.runState) return;
+      if (!checkpoint || !taskKey) return;
       const nextKeys = new Set(idempotencyKeys);
       nextKeys.add(idempotencyKey);
-      try {
-        const saved = await memory.runState.save(taskKey, {
-          stepIndex,
-          plan: currentPlan,
-          observations,
-          budgetSnapshot: null,
-          idempotencyKeys: [...nextKeys],
-          strategy: 'plan-execute',
-        });
-        // false means the write failed and the previous snapshot must stay.
-        // A missing return value is treated as success for test doubles.
-        if (saved === false) return;
-      } catch (err) {
-        console.warn(`[host] run-state save failed — continuing: ${err?.message ?? err}`);
-        return;
-      }
+
+      const saved = await checkpoint.save(taskKey, {
+        jobId: task?.id ?? null,
+        traceId,
+        task,
+        // Resuming under a renamed agent or a different strategy changes
+        // behaviour with no trace, so all three are recorded.
+        agentName,
+        agentDescription,
+        strategy: 'plan-execute',
+        plan: { steps: currentPlan?.steps ?? [], cursor: stepIndex },
+        observations,
+        idempotencyKeys: [...nextKeys],
+        conversation: conversation ?? [],
+        recalledFacts: memories ?? [],
+      });
+
+      // A false means the write failed and the previous checkpoint must stay;
+      // advancing the in-memory key set would let a step be skipped after a
+      // crash that the store never learnt about.
+      if (!saved) return;
       idempotencyKeys = nextKeys;
     }
 
@@ -257,12 +267,8 @@ export function createPlanExecuteStrategy({
         const step = steps[i];
         progressCursor = i;
         const idempotencyKey = `${step.tool ?? step.type}-${JSON.stringify(step.args ?? {})}-${i}`;
-        if (memory?.runState) {
-          try {
-            if (await memory.runState.hasIdempotencyKey(taskKey, idempotencyKey)) continue;
-          } catch (err) {
-            console.warn(`[host] run-state idempotency check failed — continuing: ${err?.message ?? err}`);
-          }
+        if (checkpoint && taskKey && await checkpoint.hasIdempotencyKey(taskKey, idempotencyKey)) {
+          continue;   // already done before a crash; do not run it twice
         }
 
         if (step.type === 'tool') {

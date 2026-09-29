@@ -1,6 +1,7 @@
 // host/strategies/open-ended.mjs
 import { parseResponse } from '../response-parser.mjs';
 import { buildSystemPrompt, buildActPrompt, formatTools } from '../prompts/index.mjs';
+import { checkpointKey } from '../checkpoint/record.mjs';
 
 function extractText(mcpResult) {
   if (!mcpResult) return '';
@@ -24,6 +25,8 @@ export function createOpenEndedStrategy({
   conversation,
   askUser = undefined,
   resumeFrom = null,
+  checkpoint = null,
+  strategy = 'open-ended',
 }) {
   const systemPrompt = buildSystemPrompt({ agentName, agentDescription, memories, conversation });
   const toolCatalog = formatTools(tools);
@@ -35,6 +38,37 @@ export function createOpenEndedStrategy({
 
   function remember(observation) {
     observations.push(observation);
+  }
+
+  /**
+   * Crash recovery. open-ended never had this: only plan-execute checkpointed,
+   * so a crash here lost every step the run had taken.
+   *
+   * Best-effort by design. A false return means the store is unreachable,
+   * which degrades recovery and does not invalidate the work already done —
+   * so the run carries on. A task with no id cannot be keyed (two runs of the
+   * same goal would share a row), and that is a reason to skip, not to crash.
+   */
+  async function saveCheckpoint() {
+    if (!checkpoint) return;
+    let key;
+    try {
+      key = checkpointKey(task);
+    } catch {
+      return;   // no id to key on — see checkpointKey
+    }
+    await checkpoint.save(key, {
+      jobId: task?.id ?? null,
+      traceId,
+      task,
+      agentName,
+      agentDescription,
+      strategy,
+      plan: null,                       // open-ended has no plan
+      observations,
+      conversation: conversation ?? [],
+      recalledFacts: memories ?? [],
+    });
   }
 
   function historyForPrompt() {
@@ -74,6 +108,7 @@ export function createOpenEndedStrategy({
         yield { type: 'action', tool, args, reasoning: parsed.reasoning };
         const result = await executeTool(tool, args);
         remember({ type: 'observation', tool, args, result });
+        await saveCheckpoint();
         yield { type: 'observation', tool, args, ...result };
         continue;
       }
