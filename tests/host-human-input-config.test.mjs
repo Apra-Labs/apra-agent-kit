@@ -88,7 +88,7 @@ test('module: the barrel exports what the rest of the host imports', () => {
     'KINDS', 'validateAnswers',
     'createBatch', 'validateSubmission', 'isStale', 'isExpired',
     'createAskUser', 'PauseRequested', 'isPauseRequested', 'isHumanInputSignal',
-    'capture', 'restore', 'rebuildFromHistory', 'resumeState',
+    'createCheckpointRecord', 'validateCheckpoint', 'rebuildFromHistory', 'resumeState',
     'planResume', 'REFUSALS',
     'createQuestionSweep',
   ]) {

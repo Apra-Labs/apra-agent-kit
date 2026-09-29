@@ -4,6 +4,7 @@ import { createPooledFleetApi } from '../pool/pooled-fleet-api.mjs';
 import { classify, executeWorkflow } from './router.mjs';
 import { runTask } from './run-loop.mjs';
 import { createBudgets } from './budgets.mjs';
+import { checkpointKey } from './checkpoint/record.mjs';
 
 export const PROGRESS_TYPES = new Set(['plan', 'action', 'observation', 'review', 'step_review', 'step_started', 'step_failed', 'memory_recall', 'memory_learn']);
 
@@ -380,11 +381,11 @@ export async function executeHostedTask(task, {
           logger.warn?.(`memory learner failed: ${err?.message ?? err}`);
         }
       }
-      if (memory?.runState) {
+      if (checkpoint && fullTask.id) {
         try {
-          await memory.runState.clear(fullTask.id ?? task.id ?? task.goal);
+          await checkpoint.clear(checkpointKey({ id: fullTask.id }));
         } catch (err) {
-          logger.warn?.(`memory run-state clear failed: ${err?.message ?? err}`);
+          logger.warn?.(`checkpoint clear failed: ${err?.message ?? err}`);
         }
       }
     }

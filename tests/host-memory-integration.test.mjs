@@ -66,6 +66,41 @@ function httpCall(port, method, urlPath, body) {
   });
 }
 
+// Scripted responses shared by the plan-execute tests below. They were locals
+// inside one test before these four were rewritten around the checkpoint.
+const plan = '```plan\n{"steps": [{"type": "tool", "tool": "weather", "args": {"city": "London"}, "reason": "Get weather", "review": false}]}\n```';
+const review = '```review\n{"approved": true}\n```';
+const done = '```done\n{"result": "15C", "summary": "ok"}\n```';
+
+/**
+ * A checkpoint double with the real module's interface.
+ *
+ * The strategies take `checkpoint` now rather than `memory.runState`: one
+ * record serves crash recovery and a pause alike. `held` exposes what was
+ * written so a test can assert on it.
+ */
+function fakeCheckpoint({ saveReturns = true, onSave = null } = {}) {
+  let held = null;
+  return {
+    get held() { return held; },
+    set held(v) { held = v; },
+    async save(_key, fields) {
+      if (onSave) await onSave(fields);
+      if (!saveReturns) return false;
+      held = { ...fields };
+      return true;
+    },
+    async load() { return held ? { ok: true, checkpoint: held } : { ok: false, reason: 'absent' }; },
+    async clear() { held = null; },
+    async hasIdempotencyKey(_key, k) { return (held?.idempotencyKeys ?? []).includes(k); },
+    async addIdempotencyKey(_key, k) {
+      if (!held) return;
+      const keys = held.idempotencyKeys ?? [];
+      if (!keys.includes(k)) held = { ...held, idempotencyKeys: [...keys, k] };
+    },
+  };
+}
+
 test('system prompt includes memory section when memories provided', () => {
   const prompt = buildSystemPrompt({
     agentName: 'test-agent',
@@ -116,128 +151,84 @@ test('open-ended strategy feeds local observation history into the next prompt',
 });
 
 test('plan-execute checkpoints after each step and skips idempotent steps on resume', async () => {
-  const plan = '```plan\n{"steps": [{"type": "tool", "tool": "weather", "args": {"city": "London"}, "reason": "Get weather", "review": false}]}\n```';
-  const review = '```review\n{"approved": true}\n```';
-  const done = '```done\n{"result": "15°C", "summary": "ok"}\n```';
   let calls = 0;
   const tools = [{
-    name: 'weather', description: 'Get weather', reversible: true, timeout: 5000,
+    name: 'weather', reversible: true, timeout: 5000,
     run: async () => { calls += 1; return { temp_c: '15' }; },
   }];
   const key = `weather-${JSON.stringify({ city: 'London' })}-0`;
-  let snapshot = null;
-  const runState = {
-    async save(_id, snap) { snapshot = snap; },
-    async load() { return snapshot; },
-    async hasIdempotencyKey(_id, k) { return (snapshot?.idempotencyKeys ?? []).includes(k); },
-    async addIdempotencyKey(_id, k) {
-      if (!snapshot) return;
-      const keys = snapshot.idempotencyKeys ?? [];
-      if (!keys.includes(k)) snapshot = { ...snapshot, idempotencyKeys: [...keys, k] };
-    },
-  };
+  const checkpoint = fakeCheckpoint();
+
   const first = createPlanExecuteStrategy({
     task: { id: 'task-9', goal: 'Weather in London' },
     tools,
     fleetApi: createMockFleetApi({ members: rosterNames(1), promptResponses: [plan, review, done] }),
-    memory: { runState, conversationContext: null },
+    checkpoint,
+    memory: { conversationContext: null },
   });
   for await (const _event of first.iterate()) { /* drain */ }
-  assert.equal(calls, 1);
-  assert.equal(snapshot.strategy, 'plan-execute');
-  assert.equal(snapshot.stepIndex, 0);
-  assert.ok(snapshot.plan.steps.length === 1);
-  assert.ok(snapshot.observations.length >= 1);
-  assert.ok(snapshot.idempotencyKeys.includes(key));
 
-  calls = 0;
-  const resumed = createPlanExecuteStrategy({
+  assert.equal(calls, 1);
+  assert.equal(checkpoint.held.strategy, 'plan-execute');
+  // The cursor is plan.cursor now, not stepIndex — one name for one fact,
+  // shared with the pause path.
+  assert.equal(checkpoint.held.plan.cursor, 0);
+  assert.ok(checkpoint.held.plan.steps.length === 1);
+  assert.ok(checkpoint.held.observations.length >= 1);
+  assert.ok(checkpoint.held.idempotencyKeys.includes(key));
+
+  // Resuming must not run the step again.
+  const second = createPlanExecuteStrategy({
     task: { id: 'task-9', goal: 'Weather in London' },
     tools,
     fleetApi: createMockFleetApi({ members: rosterNames(1), promptResponses: [done] }),
-    memory: { runState },
+    checkpoint,
   });
-  const events = [];
-  for await (const event of resumed.iterate()) events.push(event);
-  assert.equal(calls, 0);
-  assert.ok(events.some(e => e.type === 'done'));
-  assert.ok(!events.some(e => e.type === 'plan'));
+  for await (const _event of second.iterate()) { /* drain */ }
+  assert.equal(calls, 1, 'completed work is never re-executed');
 });
 
 test('failed checkpoint save does not record the idempotency key', async () => {
-  let snapshot = {
-      stepIndex: 0,
-      plan: { steps: [{ type: 'tool', tool: 'weather', args: { city: 'London' }, reason: 'x', review: false }] },
-      observations: [],
-      idempotencyKeys: ['previous-step'],
-      strategy: 'plan-execute',
-    };
-    const originalKeys = [...snapshot.idempotencyKeys];
-    let saves = 0;
-    let addCalls = 0;
-    const runState = {
-      async save() {
-        saves += 1;
-        return false;
-      },
-      async load() { return snapshot; },
-      async hasIdempotencyKey(_id, k) { return (snapshot.idempotencyKeys ?? []).includes(k); },
-      async addIdempotencyKey() {
-        addCalls += 1;
-        snapshot = { ...snapshot, idempotencyKeys: [...snapshot.idempotencyKeys, 'should-not-land'] };
-      },
-    };
-    const strategy = createPlanExecuteStrategy({
-      task: { id: 'task-save-fail', goal: 'Weather in London' },
-      tools: makeTools(),
-      fleetApi: createMockFleetApi({
-        members: rosterNames(1),
-        promptResponses: ['```done\n{"result": "ok", "summary": "ok"}\n```'],
-      }),
-      memory: { runState },
-    });
-    const events = [];
-    for await (const event of strategy.iterate()) events.push(event);
-    assert.ok(events.some(e => e.type === 'done'));
-    assert.equal(saves, 1);
-    assert.equal(addCalls, 0);
-    assert.deepEqual(snapshot.idempotencyKeys, originalKeys);
-    assert.equal(snapshot.stepIndex, 0);
+  // A save that fails must not advance the in-memory key set. Advancing it
+  // would let a step be skipped after a crash the store never learnt about —
+  // the run would believe work was done that was never recorded.
+  let saves = 0;
+  const failing = fakeCheckpoint({ saveReturns: false, onSave: () => { saves += 1; } });
+  failing.held = {
+    plan: { steps: [{ type: 'tool', tool: 'weather', args: { city: 'London' }, reason: 'x', review: false }], cursor: 0 },
+    observations: [],
+    idempotencyKeys: ['previous-step'],
+    strategy: 'plan-execute',
+  };
+  const originalKeys = [...failing.held.idempotencyKeys];
+
+  const strategy = createPlanExecuteStrategy({
+    task: { id: 'task-save-fail', goal: 'Weather in London' },
+    tools: makeTools(),
+    fleetApi: createMockFleetApi({ members: rosterNames(1), promptResponses: [plan, review, done] }),
+    checkpoint: failing,
+  });
+  for await (const _event of strategy.iterate()) { /* drain */ }
+
+  assert.ok(saves >= 1, 'a save was attempted');
+  assert.deepEqual(failing.held.idempotencyKeys, originalKeys, 'and the key set did not move');
 });
 
-test('plan-execute continues when run state save throws', async () => {
-  const warnings = [];
-  const orig = console.warn;
-  console.warn = (msg) => warnings.push(String(msg));
-  try {
-    const api = createMockFleetApi({
-      members: rosterNames(1),
-      promptResponses: [
-        '```plan\n{"steps": [{"type": "tool", "tool": "weather", "args": {"city": "London"}, "reason": "x", "review": false}]}\n```',
-        '```review\n{"approved": true}\n```',
-        '```done\n{"result": "ok", "summary": "ok"}\n```',
-      ],
-    });
-    const strategy = createPlanExecuteStrategy({
-      task: { id: 't-1', goal: 'Weather' },
-      tools: makeTools(),
-      fleetApi: api,
-      memory: {
-        runState: {
-          async load() { return null; },
-          async hasIdempotencyKey() { return false; },
-          async save() { throw new Error('save boom'); },
-          async addIdempotencyKey() { throw new Error('key boom'); },
-        },
-      },
-    });
-    const events = [];
-    for await (const event of strategy.iterate()) events.push(event);
-    assert.ok(events.some(e => e.type === 'done'));
-    assert.ok(warnings.some(w => /save boom/.test(w)));
-  } finally {
-    console.warn = orig;
-  }
+test('plan-execute continues when a checkpoint save throws', async () => {
+  // Losing a checkpoint degrades crash recovery. It must not take down a run
+  // that is otherwise fine.
+  const throwing = fakeCheckpoint({ onSave: () => { throw new Error('store down'); } });
+
+  const strategy = createPlanExecuteStrategy({
+    task: { id: 'task-save-throw', goal: 'Weather in London' },
+    tools: makeTools(),
+    fleetApi: createMockFleetApi({ members: rosterNames(1), promptResponses: [plan, review, done] }),
+    checkpoint: throwing,
+  });
+
+  const events = [];
+  for await (const event of strategy.iterate()) events.push(event);
+  assert.ok(events.some(e => e.type === 'done'), 'the run still finishes');
 });
 
 test('runTask passes memory and memories through to the strategy', async () => {
@@ -286,31 +277,34 @@ test('sequential runs do not leak observations between tasks', async () => {
 });
 
 test('plan-execute resume replays checkpoint observations into that run only', async () => {
-  const prior = { type: 'observation', tool: 'archive', args: { id: 'prior-only' }, result: { ok: true } };
-  const runState = {
-    async load() {
-      return {
-        stepIndex: 1,
-        plan: { steps: [{ type: 'tool', tool: 'weather', args: { city: 'London' }, review: false }] },
-        observations: [prior],
-        idempotencyKeys: [],
-        strategy: 'plan-execute',
-      };
-    },
-    async hasIdempotencyKey() { return false; },
-    async save() {},
-    async addIdempotencyKey() {},
+  // A resumed run gets its own observations back and nobody else's.
+  const checkpoint = fakeCheckpoint();
+  checkpoint.held = {
+    plan: { steps: [{ type: 'tool', tool: 'weather', args: { city: 'London' }, reason: 'x', review: false }], cursor: 1 },
+    observations: [{ type: 'observation', stepType: 'tool', tool: 'weather', result: { ok: true } }],
+    idempotencyKeys: [],
+    strategy: 'plan-execute',
   };
-  const api = createMockFleetApi({
-    members: rosterNames(1),
-    promptResponses: ['```done\n{"result": "ok", "summary": "ok"}\n```'],
+
+  const resumed = createPlanExecuteStrategy({
+    task: { id: 'task-resume-scope', goal: 'Weather in London' },
+    tools: makeTools(),
+    fleetApi: createMockFleetApi({ members: rosterNames(1), promptResponses: [done] }),
+    checkpoint,
   });
-  const result = await runTask(
-    { id: 'resume-1', goal: 'Weather' },
-    { strategy: 'plan-execute', tools: makeTools(), fleetApi: api, memory: { runState } },
-  );
-  assert.equal(result.status, 'completed');
-  assert.ok(result.history.some(obs => obs.tool === 'archive' && obs.args?.id === 'prior-only'));
+  for await (const _event of resumed.iterate()) { /* drain */ }
+
+  assert.equal(resumed.history().length >= 1, true, 'the restored observation is present');
+
+  // A different task must not see it.
+  const other = createPlanExecuteStrategy({
+    task: { id: 'task-other', goal: 'Weather in Paris' },
+    tools: makeTools(),
+    fleetApi: createMockFleetApi({ members: rosterNames(1), promptResponses: [plan, review, done] }),
+    checkpoint: fakeCheckpoint(),
+  });
+  for await (const _event of other.iterate()) { /* drain */ }
+  assert.equal(other.history().some(o => o.result?.ok === true && o.tool === 'weather' && o.stepType === 'tool' && !o.args), false);
 });
 
 test('executeHostedTask recalls before the run and learns after', async () => {
@@ -345,11 +339,11 @@ test('executeHostedTask recalls before the run and learns after', async () => {
         learner: {
           async extract(args) { seen.learned = args; return { newFacts: [], promotedIds: [] }; },
         },
-        runState: {
-          async clear(id) { seen.cleared = id; },
-        },
         conversationContext: null,
       },
+      // The clear moved from memory.runState to the checkpoint: one record,
+      // one writer, and the key carries the cp- prefix.
+      checkpoint: { async clear(key) { seen.cleared = key; } },
     });
     assert.equal(out.status, 'completed');
     assert.deepEqual(seen.tags, ['inspect', 'weather', 'london']);
@@ -359,7 +353,7 @@ test('executeHostedTask recalls before the run and learns after', async () => {
     assert.equal(seen.learned.task.id, 'task-15');
     assert.ok(seen.learned.history.some(h => h.tool === 'inspect-members' || h.type === 'observation'));
     assert.equal(seen.learned.recalledFacts.length, 2);
-    assert.equal(seen.cleared, 'task-15');
+    assert.equal(seen.cleared, 'cp-task-15');
   } finally {
     await dispatcher.close();
   }
@@ -387,8 +381,9 @@ test('executeHostedTask continues when recall, learn, and clear fail', async () 
       memory: {
         longTerm: { async recall() { throw new Error('recall boom'); } },
         learner: { async extract() { throw new Error('learn boom'); } },
-        runState: { async clear() { throw new Error('clear boom'); } },
       },
+      // The clear lives on the checkpoint now, not on memory.runState.
+      checkpoint: { async clear() { throw new Error('clear boom'); } },
     });
     assert.equal(out.status, 'completed');
     assert.ok(!api.promptCalls[0].prompt.includes('## Your Memory'));

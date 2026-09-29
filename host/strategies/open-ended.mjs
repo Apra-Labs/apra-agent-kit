@@ -57,7 +57,8 @@ export function createOpenEndedStrategy({
     } catch {
       return;   // no id to key on — see checkpointKey
     }
-    await checkpoint.save(key, {
+    try {
+      await checkpoint.save(key, {
       jobId: task?.id ?? null,
       traceId,
       task,
@@ -66,9 +67,13 @@ export function createOpenEndedStrategy({
       strategy,
       plan: null,                       // open-ended has no plan
       observations,
-      conversation: conversation ?? [],
-      recalledFacts: memories ?? [],
-    });
+        conversation: conversation ?? [],
+        recalledFacts: memories ?? [],
+      });
+    } catch {
+      // Same reasoning as plan-execute: a checkpoint that cannot be written
+      // degrades crash recovery and does not invalidate the work already done.
+    }
   }
 
   function historyForPrompt() {

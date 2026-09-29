@@ -211,7 +211,8 @@ test('conformance: the kit reports a version', async () => {
 // ---------------------------------------------------------------------------
 
 const {
-  createAskUser, PauseRequested, isHumanInputSignal, capture, restore, rebuildFromHistory,
+  createAskUser, PauseRequested, isHumanInputSignal,
+  createCheckpointRecord: capture, validateCheckpoint: restore, rebuildFromHistory,
 } = await import('../host/human-input/index.mjs');
 
 const anApproval = [{ fieldId: 'proceed', kind: 'approval', prompt: 'Go ahead?', required: true }];
@@ -286,8 +287,9 @@ test('conformance: the approval question never names the tool', async () => {
   );
 });
 
-test('conformance: no credential survives a snapshot', async () => {
+test('conformance: no credential survives a checkpoint', async () => {
   const snap = capture({
+    taskKey: 'cp-job-1',
     jobId: 'job-1',
     task: { goal: 'g', inputs: { apiKey: 'sk-live-1' } },
     conversation: [{ headers: { Authorization: 'Bearer abc' } }],
@@ -302,9 +304,9 @@ test('conformance: no credential survives a snapshot', async () => {
   assert.deepEqual(snap.identity, { personId: 'p-1' }, 'identity records who, not the proof');
 });
 
-test('conformance: an incompatible snapshot is refused, not coerced', async () => {
+test('conformance: an incompatible checkpoint is refused, not coerced', async () => {
   // Resuming on a misread plan cursor re-executes work that already happened.
-  const res = restore({ version: 999, jobId: 'job-1' });
+  const res = restore({ version: 999, taskKey: 'cp-job-1' });
   assert.equal(res.ok, false);
   assert.equal(res.reason, 'incompatible_version');
 });
@@ -317,7 +319,7 @@ test('conformance: a run rebuilds identically from history alone', async () => {
     rec.plannedEntry('job-1', { plan: ['a', 'b'] }, at),
     rec.stepCompletedEntry('job-1', { stepIndex: 0, result: 1, reversible: true }, at),
   ];
-  const rebuilt = rebuildFromHistory(history, { jobId: 'job-1', now: at });
+  const rebuilt = rebuildFromHistory(history, { taskKey: 'cp-job-1', jobId: 'job-1', now: at });
 
   assert.equal(rebuilt.plan.cursor, 1, 'completed work is not redone');
   assert.equal(restore(rebuilt).ok, true, 'and the rebuild is itself a valid snapshot');

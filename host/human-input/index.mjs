@@ -10,8 +10,8 @@
 //   questions.mjs  the five kinds of question, and what counts as an answer
 //   batch.mjs      one interruption carrying many questions, and its deadlines
 //   ask.mjs        `askUser` — raise a batch, persist it, unwind the run
-//   snapshot.mjs   the disposable resume cache, and the rebuild that makes it
-//                  disposable
+//   (the disposable resume cache moved to host/checkpoint/, where it is
+//    shared with memory's crash-recovery checkpoint)
 //   resume.mjs     whether an answer is acceptable, and what the run comes
 //                  back with — shared by every backend
 //   sweep.mjs      the two deadlines, enforced on a schedule
@@ -36,9 +36,13 @@ export {
   DEFAULT_MAX_INTERRUPTIONS,
 } from './ask.mjs';
 
+// The snapshot retired into host/checkpoint/: one record for crash recovery
+// and for a pause, with one writer. Re-exported here so existing importers of
+// this barrel keep working.
 export {
-  SNAPSHOT_VERSION, capture, restore, rebuildFromHistory, resumeState, scrub,
-} from './snapshot.mjs';
+  CHECKPOINT_VERSION, createCheckpointRecord, validateCheckpoint,
+  rebuildFromHistory, resumeState, scrub,
+} from '../checkpoint/index.mjs';
 
 export { REFUSALS, planResume, planExpiry } from './resume.mjs';
 

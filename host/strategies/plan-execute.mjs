@@ -119,7 +119,9 @@ export function createPlanExecuteStrategy({
       const nextKeys = new Set(idempotencyKeys);
       nextKeys.add(idempotencyKey);
 
-      const saved = await checkpoint.save(taskKey, {
+      let saved = false;
+      try {
+        saved = await checkpoint.save(taskKey, {
         jobId: task?.id ?? null,
         traceId,
         task,
@@ -131,9 +133,16 @@ export function createPlanExecuteStrategy({
         plan: { steps: currentPlan?.steps ?? [], cursor: stepIndex },
         observations,
         idempotencyKeys: [...nextKeys],
-        conversation: conversation ?? [],
-        recalledFacts: memories ?? [],
-      });
+          conversation: conversation ?? [],
+          recalledFacts: memories ?? [],
+        });
+      } catch (err) {
+        // The shipped checkpoint returns false rather than throwing, but a
+        // different implementation might not — and losing a checkpoint must
+        // never take down a run that is otherwise fine.
+        console.warn(`[host] checkpoint save threw — continuing: ${err?.message ?? err}`);
+        return;
+      }
 
       // A false means the write failed and the previous checkpoint must stay;
       // advancing the in-memory key set would let a step be skipped after a

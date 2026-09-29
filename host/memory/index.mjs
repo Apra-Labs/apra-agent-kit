@@ -5,7 +5,6 @@ import { createSqliteStore } from './store/sqlite.mjs';
 import { assertConversationStore } from './conversation-store/interface.mjs';
 import { createConversationSqliteStore } from './conversation-store/sqlite.mjs';
 import { createConversationContext } from './conversation-context.mjs';
-import { createRunState } from './run-state.mjs';
 import { createLongTermMemory } from './long-term.mjs';
 import { createFsrs6Engine } from './decay/fsrs6.mjs';
 import { createLearner } from './learner.mjs';

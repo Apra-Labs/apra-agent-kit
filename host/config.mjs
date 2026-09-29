@@ -132,8 +132,8 @@ function validate(raw, env) {
     if (mem.conversationContext?.enabled && !modules.chat?.enabled) {
       console.warn('[host/config] memory.conversationContext enabled but chat disabled — no conversation to track');
     }
-    if (mem.runState?.enabled && !runLoopEnabled) {
-      console.warn('[host/config] memory.runState enabled but runLoop disabled — no step sequence to checkpoint');
+    if ((mem.checkpoint ?? mem.runState)?.enabled && !runLoopEnabled) {
+      console.warn('[host/config] memory.checkpoint enabled but runLoop disabled — no step sequence to checkpoint');
     }
     if (mem.longTerm?.autoLearn && !runLoopEnabled) {
       console.warn('[host/config] memory.longTerm.autoLearn enabled but runLoop disabled — needs a run to learn from');
