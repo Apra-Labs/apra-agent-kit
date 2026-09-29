@@ -5,7 +5,8 @@
 import { executeHostedTask, settleWhenAborted } from '../../host/tasks.mjs';
 import { settleFromRunResult, questionAskedEntry } from '../../host/jobs/record.mjs';
 import { createAskUser } from '../../host/human-input/ask.mjs';
-import { capture } from '../../host/human-input/snapshot.mjs';
+import { createCheckpoint } from '../../host/checkpoint/index.mjs';
+import { checkpointKey } from '../../host/checkpoint/record.mjs';
 
 let factory = null;
 let contextPromise = null;
@@ -87,11 +88,21 @@ export function createRunTaskActivity({ getClient, pollMs = 2000, getContext = g
       // orchestration will rebuild from - which on Azure is the *only* copy,
       // because there is no store beside the task hub.
       if (run.status === 'paused' && !controller.signal.aborted) {
-        const history = [...(resume?.history ?? []), ...askedHistory];
-        const snapshot = capture({
+        // The state goes to the memory store; the orchestration output carries
+        // only a key. Durable caps that output at 16 KB, and a long run's state
+        // does not fit — which is why #63 had to ship a pause_too_large failure.
+        const taskKey = checkpointKey({ id: jobId });
+        const cp = hostCtx.memory?.checkpointStore
+          ? createCheckpoint({ store: hostCtx.memory.checkpointStore, logger: hostCtx.logger })
+          : null;
+
+        const saved = cp && await cp.save(taskKey, {
           jobId,
           traceId: run.traceId ?? null,
           task,
+          agentName: hostCtx.runLoopConfig?.agentName ?? null,
+          agentDescription: hostCtx.runLoopConfig?.agentDescription ?? null,
+          strategy: run.routedTo ?? null,
           observations: run.progress?.observations ?? [],
           plan: run.progress?.plan ?? null,
           budget: run.budget ?? null,
@@ -99,7 +110,20 @@ export function createRunTaskActivity({ getClient, pollMs = 2000, getContext = g
           identity: input.metadata?.identity ?? null,
           pendingBatchId: run.batchId,
         });
-        return { status: 'paused', batchId: run.batchId, batch: run.batch, snapshot, history, routedTo: run.routedTo ?? null };
+
+        // An unsaved pause is a question nobody will ever answer.
+        if (!saved) {
+          return {
+            status: 'failed',
+            result: null,
+            error: {
+              code: 'pause_failed',
+              message: 'the checkpoint could not be written; the question would never be answered',
+            },
+          };
+        }
+
+        return { status: 'paused', batchId: run.batchId, batch: run.batch, checkpointKey: taskKey, routedTo: run.routedTo ?? null };
       }
 
       const settled = settleFromRunResult(run);

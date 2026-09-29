@@ -40,7 +40,9 @@ export function mapDurableStatus(instance) {
     if (instance.output.status === 'paused') {
       // The output *is* the store here. Nothing else holds this run's state.
       out.pendingInput = instance.output.batch ?? null;
-      out.snapshot = instance.output.snapshot ?? null;
+      out.pendingBatchId = instance.output.batchId ?? null;
+      // A pointer to the memory store, not the state itself.
+      out.checkpointKey = instance.output.checkpointKey ?? null;
       out.history = instance.output.history ?? [];
       out.result = null;
       out.error = null;

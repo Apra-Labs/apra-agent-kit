@@ -92,9 +92,24 @@ const modelFor = () => createMockFleetApi({
   },
 });
 
+/** An in-memory store standing in for memory's checkpoint store. */
+function fakeMemoryStore() {
+  const rows = new Map();
+  return {
+    rows,
+    async open() {}, async close() {},
+    async store(e) { rows.set(e.id, e); },
+    async get(id) { return rows.get(id) ?? null; },
+    async update(id, p) { rows.set(id, { ...rows.get(id), ...p }); },
+    async remove(id) { rows.delete(id); },
+    async query() { return []; }, async purge() {}, async count() { return rows.size; },
+  };
+}
+
 async function harness() {
   const { calls, tools } = bookingTool();
   const hub = fakeHub();
+  const memoryStore = fakeMemoryStore();
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'durable-cycle-'));
   const dispatcher = new WorkerDispatcher({
     pool: WorkerPool.create({ config: { size: 1, root, acquireTimeoutMs: 5000 } }),
@@ -112,7 +127,9 @@ async function harness() {
     guardrailsMod: createGuardrails({ enabled: true, defaultPolicy: 'allow' }, tools, executeTool),
     notifier: null,
     jobs: null,
-    memory: null,
+    // humanInput requires memory: a paused run writes its checkpoint there,
+    // and the orchestration output carries only the key.
+    memory: { checkpointStore: memoryStore },
     logger: { warn() {}, info() {}, error() {} },
     humanInputConfig: { enabled: true, maxInterruptions: 10 },
   }));
@@ -147,7 +164,7 @@ async function harness() {
   });
 
   return {
-    jobs, hub, calls, runOrchestration,
+    jobs, hub, calls, runOrchestration, memoryStore,
     async cleanup() {
       await dispatcher.close().catch(() => {});
       await fs.rm(root, { recursive: true, force: true }).catch(() => {});

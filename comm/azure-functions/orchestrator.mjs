@@ -92,13 +92,12 @@ export function buildOrchestrator({ ringSize = 50 } = {}) {
 export const runTaskOrchestrator = buildOrchestrator();
 
 /**
- * A paused orchestration's output is the only copy of its state, so it must
- * never be truncated the way a finished result can be.
+ * A paused output is a pointer now, so it cannot realistically exceed the
+ * 16 KB Durable cap.
  *
- * Durable caps a return value at 16 KB (UTF-16). If the state does not fit,
- * the honest outcome is to fail the run rather than write a snapshot that will
- * rebuild into something wrong. The message names the fix, because there is
- * one: an explicit store on Functions keeps state outside the task hub.
+ * This stays as an assertion rather than a path: if it ever fires, something
+ * has started putting state back in the output, and failing loudly beats
+ * truncating a pointer into nonsense.
  */
 function guardPausedOutput(output, jobId) {
   const json = JSON.stringify(output);
@@ -110,9 +109,8 @@ function guardPausedOutput(output, jobId) {
     error: {
       code: 'pause_too_large',
       message:
-        `job ${jobId} could not pause: its state is ${json.length} characters and Durable caps an ` +
-        'orchestration output at roughly 12,000. Set dispatch.store.kind to "cosmos" to keep job ' +
-        'state outside the task hub.',
+        `job ${jobId} paused with ${json.length} characters of output; a paused output must be a ` +
+        'pointer, not state. Something is writing run state into the orchestration output again.',
     },
   };
 }

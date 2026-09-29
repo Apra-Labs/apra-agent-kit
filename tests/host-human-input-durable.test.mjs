@@ -33,11 +33,12 @@ const aBatch = (over = {}) => ({
   ...over,
 });
 
+// The output is a pointer now: the state lives in the memory store.
 const pausedOutput = (over = {}) => ({
   status: 'paused',
   batchId: aBatch().batchId,
   batch: aBatch(),
-  snapshot: { version: 1, jobId: 'job-1', observations: [], plan: null, interruptions: 1, pendingBatchId: aBatch().batchId },
+  checkpointKey: 'cp-job-1',
   history: [{ type: 'question_asked', jobId: 'job-1', batch: aBatch() }],
   ...over,
 });
@@ -84,10 +85,13 @@ test('orchestrator: the generator still yields exactly once - the replay bug can
   assert.equal(gen.next().done, true, 'nothing further is yielded after the return');
 });
 
-test('orchestrator: the output carries the state - it is the only copy', async () => {
+test('orchestrator: the output carries a pointer to where the state is', async () => {
+  // It used to carry the state itself, which is why a long run could not pause
+  // at all — Durable caps the output at 16KB. The state is in the memory store
+  // now and this is the key to it.
   const { output } = runOrchestrator(pausedOutput());
-  assert.equal(output.snapshot.version, 1);
-  assert.equal(output.history.length, 1);
+  assert.equal(output.checkpointKey, 'cp-job-1');
+  assert.equal(output.snapshot, undefined, 'no state in the output');
   assert.equal(output.batch.questions[0].fieldId, 'proceed');
 });
 
@@ -117,16 +121,16 @@ test('orchestrator: input_required is pushed as an event for a watching client',
   assert.equal(event.questions.length, 1);
 });
 
-test('orchestrator: state too large to fit fails the run rather than truncating it', async () => {
-  // Durable caps an output at 16KB. A finished result can be trimmed - the
-  // full text already went out over SSE. A paused snapshot cannot: it would
-  // rebuild into something wrong. The message names the fix.
-  const huge = pausedOutput({ snapshot: { version: 1, jobId: 'job-1', filler: 'x'.repeat(20_000) } });
+test('orchestrator: an oversized paused output still fails loudly', async () => {
+  // The state moved to the memory store, so this is now an assertion rather
+  // than a path: if it fires, something is writing state into the output
+  // again, and failing beats truncating a pointer into nonsense.
+  const huge = pausedOutput({ filler: 'x'.repeat(20_000) });
   const { output } = runOrchestrator(huge);
 
   assert.equal(output.status, 'failed');
   assert.equal(output.error.code, 'pause_too_large');
-  assert.match(output.error.message, /cosmos/);
+  assert.match(output.error.message, /pointer, not state/);
 });
 
 test('orchestrator: a normal settle is unchanged', async () => {
@@ -154,7 +158,7 @@ test('map: a Completed instance whose output is paused reads as waiting_input', 
 
   assert.equal(record.status, 'waiting_input');
   assert.equal(record.pendingInput.batchId, aBatch().batchId);
-  assert.equal(record.snapshot.interruptions, 1);
+  assert.equal(record.checkpointKey, 'cp-job-1', 'a pointer, not the state');
   assert.equal(record.result, null);
   assert.equal(record.error, null);
 });
