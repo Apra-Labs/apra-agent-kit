@@ -54,24 +54,22 @@ than "you can use X".`,
     },
     router: {
       enabled: true,
-      fallbackStrategy: 'open-ended',
+      fallbackStrategy: 'plan-execute',
     },
 
-    // -- Scheduler (uncomment to enable recurring workflow runs) --
-    //
-    // scheduler: {
-    //   enabled: true,
-    //   schedules: [
-    //     {
-    //       name: 'example-schedule',
-    //       workflow: 'hello',           // must match a registered workflow
-    //       args: {},                     // workflow arguments
-    //       cron: '0 9 * * *',           // 9am daily
-    //       timezone: 'UTC',             // IANA timezone
-    //       overlap: 'queue',            // 'queue' or 'skip'
-    //     },
-    //   ],
-    // },
+    scheduler: {
+      enabled: true,
+      schedules: [
+        {
+          name: 'hello-every-2m',
+          workflow: 'hello',
+          args: {},
+          cron: '*/2 * * * *',
+          timezone: 'UTC',
+          overlap: 'skip',
+        },
+      ],
+    },
 
     // -- Memory (uncomment tiers you need) --
     //

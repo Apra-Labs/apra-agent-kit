@@ -52,12 +52,18 @@ export function createDurableScheduler(config, { jobs, toolRegistry, logger }) {
       started = false;
     },
 
-    registerTimerFunctions(app) {
+    registerTimerFunctions(app, { extraInputs = [], getClient, setClient } = {}) {
       validateSchedules(config.schedules, toolRegistry);
       for (const schedule of config.schedules) {
         const timerConfig = {
           schedule: toNcrontab(schedule.cron),
-          handler: async (timer, context) => tick(schedule, timer),
+          extraInputs,
+          handler: async (timer, context) => {
+            if (getClient && setClient) {
+              try { setClient(getClient(context)); } catch { /* best-effort */ }
+            }
+            await tick(schedule, timer);
+          },
         };
         if (schedule.timezone && schedule.timezone !== 'UTC') {
           timerConfig.runOnStartup = false;

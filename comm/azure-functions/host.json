@@ -3,5 +3,11 @@
   "functionTimeout": "-1",
   "extensionBundle": { "id": "Microsoft.Azure.Functions.ExtensionBundle", "version": "[4.*, 5.0.0)" },
   "extensions": { "durableTask": { "hubName": "%DURABLE_TASK_HUB%" } },
-  "logging": { "logLevel": { "default": "Information" } }
+  "logging": {
+    "logLevel": {
+      "default": "Information",
+      "Azure.Core": "Warning",
+      "Host.Triggers.DurableTask": "Warning"
+    }
+  }
 }

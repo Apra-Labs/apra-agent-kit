@@ -402,48 +402,179 @@ async run({ args }) {
 
 ## Step 3: Run your agent
 
-### Local (express adapter)
+There are two deployment modes and two ways to run each — pick what fits your setup:
+
+| | **VM** | **Azure Functions** |
+|---|---|---|
+| **What it is** | Express server + SQLite jobs | Azure Functions host + Durable Functions |
+| **Jobs backend** | `in-process` (SQLite) | `durable` (Azurite locally, Azure Storage in prod) |
+| **Scaling** | Single process | Horizontal (task hub is shared state) |
+| **Entry point** | `node host/index.mjs` | `comm/azure-functions/main.mjs` |
+| **Config** | `host.config.mjs` (root) | `deploy/azure-functions/host.config.mjs` |
+| **Chat URL** | `http://localhost:3000/chat` | `http://localhost:7071/api/chat` |
+
+### Prerequisites (all modes)
 
 ```bash
 npm install
+```
+
+Generate a token (you'll pass it to Docker or export it for local dev):
+
+```bash
+claude setup-token
+```
+
+---
+
+### Option A: VM — without Docker
+
+The simplest way to run. Uses the Express adapter with SQLite-backed jobs.
+
+```bash
+# Linux / macOS
 export CLAUDE_CODE_OAUTH_TOKEN="$(claude setup-token)"
 node host/index.mjs
 ```
 
-The agent starts on `http://localhost:3000`:
-- **Chat UI** → `http://localhost:3000/chat`
-- **Submit a task** → `POST http://localhost:3000/task` with `{ "goal": "..." }`
-- **MCP endpoint** → `POST http://localhost:3000/mcp`
-- **Job status** → `GET http://localhost:3000/jobs/{jobId}`
-- **SSE stream** → `GET http://localhost:3000/jobs/{jobId}/events`
+```powershell
+# Windows (PowerShell)
+$env:CLAUDE_CODE_OAUTH_TOKEN = (claude setup-token)
+node host/index.mjs
+```
 
-### Docker
+The agent starts on `http://localhost:3000`:
+
+| Endpoint | What it does |
+|---|---|
+| `GET /chat` | Chat UI |
+| `POST /task` | Submit a goal `{ "goal": "..." }` |
+| `GET /jobs/{id}` | Poll job status |
+| `DELETE /jobs/{id}` | Cancel a job |
+| `GET /jobs/{id}/events` | SSE event stream |
+| `POST /mcp` | MCP tool server endpoint |
+| `GET /health` | Liveness check |
+| `GET /schedules` | List scheduled workflows |
+
+---
+
+### Option B: VM — with Docker
+
+Same VM mode, but containerized. No Node.js install needed on the host.
 
 ```bash
-CLAUDE_CODE_OAUTH_TOKEN="your-token" docker compose up -d
+# Linux / macOS
+CLAUDE_CODE_OAUTH_TOKEN=$(claude setup-token) docker compose up -d --build
 ```
 
-### Azure Functions
-
-For production deployment with horizontal scaling, see
-[deploy-azure-functions.md](deploy-azure-functions.md). The key config differences:
-
-```js
-// deploy/azure-functions/host.config.mjs
-comm: { adapter: 'azure-functions' },
-modules: {
-  dispatch: { enabled: true, backend: 'durable' },
-  // ...
-}
+```powershell
+# Windows (PowerShell)
+$env:CLAUDE_CODE_OAUTH_TOKEN = (claude setup-token); docker compose up -d --build
 ```
 
-| | Local / VM | Azure Functions |
-|---|---|---|
-| Adapter | `express` | `azure-functions` |
-| Jobs backend | `in-process` (SQLite) | `durable` (Durable Functions) |
-| Scaling | Single process | Horizontal (task hub is shared state) |
-| Entry point | `node host/index.mjs` | `comm/azure-functions/main.mjs` |
-| Workers | `WORKER_POOL_SIZE` (default 4) | `WORKER_EPHEMERAL_MAX` |
+Chat UI at **http://localhost:3000/chat**. Same endpoints as Option A.
+
+Stop with:
+```bash
+docker compose down
+```
+
+---
+
+### Option C: Azure Functions — without Docker
+
+Uses Azure Functions Core Tools (`func` CLI) to run the Functions host locally
+with Azurite for storage emulation. This is the closest to a real Azure deployment
+without needing Docker.
+
+**Extra prerequisites:**
+- [Azure Functions Core Tools](https://learn.microsoft.com/en-us/azure/azure-functions/functions-run-local) (`func`)
+- [Azurite](https://www.npmjs.com/package/azurite) (`npm install -g azurite`)
+
+Run with the included helper script:
+
+```powershell
+# Windows — real LLM, Durable backend
+.\scripts\start-func-local.ps1 -Durable
+
+# Windows — real LLM, in-process backend (avoids Durable extension issues)
+.\scripts\start-func-local.ps1
+
+# Windows — mock LLM (no API calls, for testing)
+.\scripts\start-func-local.ps1 -Token mock
+```
+
+The script handles everything: starts Azurite, swaps the config to the
+`azure-functions` adapter, runs `func start`, and restores everything on Ctrl+C.
+
+Chat UI at **http://localhost:7071/api/chat**. All endpoints are prefixed with `/api`.
+
+| Endpoint | What it does |
+|---|---|
+| `GET /api/chat` | Chat UI |
+| `POST /api/task` | Submit a goal `{ "goal": "..." }` |
+| `GET /api/jobs/{id}` | Poll job status |
+| `DELETE /api/jobs/{id}` | Cancel a job |
+| `GET /api/jobs/{id}/events` | SSE event stream |
+| `POST /api/mcp` | MCP tool server endpoint |
+| `GET /api/health` | Liveness check |
+| `GET /api/schedules` | List scheduled workflows |
+
+---
+
+### Option D: Azure Functions — with Docker
+
+Runs the full Azure Functions container image with Azurite — the closest to
+production. This is what gets deployed to Azure.
+
+```bash
+# Linux / macOS
+CLAUDE_CODE_OAUTH_TOKEN=$(claude setup-token) docker compose -f docker-compose.azure.yml up -d --build
+```
+
+```powershell
+# Windows (PowerShell)
+$env:CLAUDE_CODE_OAUTH_TOKEN = (claude setup-token); docker compose -f docker-compose.azure.yml up -d --build
+```
+
+The first startup takes ~60–90 seconds while the Functions host downloads its
+extension bundle. Wait for the health check to pass:
+
+```bash
+docker compose -f docker-compose.azure.yml ps
+```
+
+Once `agent` shows **healthy**, open **http://localhost:7071/api/chat**.
+Same `/api`-prefixed endpoints as Option C.
+
+Stop with:
+```bash
+docker compose -f docker-compose.azure.yml down
+```
+
+---
+
+### What's in each Docker compose file?
+
+**`docker-compose.yml`** (VM):
+
+| Container | Purpose |
+|---|---|
+| `agent` | Your agent (Express + SQLite) on port 3000 |
+
+**`docker-compose.azure.yml`** (Azure Functions):
+
+| Container | Purpose |
+|---|---|
+| `azurite` | Local Azure Storage emulator (queues, tables, blobs for Durable Functions) |
+| `agent` | Azure Functions host with your agent on port 7071 |
+
+---
+
+### Production deployment (Azure)
+
+For deploying to Azure Functions with horizontal scaling, see
+[deploy-azure-functions.md](deploy-azure-functions.md).
 
 ---
 
@@ -457,22 +588,31 @@ with the underlying Claude Code workers that execute tool calls.
 ```bash
 # Generate a token
 claude setup-token
-
-# Set it as an environment variable
-export CLAUDE_CODE_OAUTH_TOKEN="the-token-from-above"
 ```
 
-For Docker, pass it at launch:
+Pass it when you start the agent — the token never goes in a file:
+
 ```bash
-CLAUDE_CODE_OAUTH_TOKEN="your-token" docker compose up -d
+# Local (no Docker)
+export CLAUDE_CODE_OAUTH_TOKEN="$(claude setup-token)"
+node host/index.mjs
+
+# Docker (VM)
+CLAUDE_CODE_OAUTH_TOKEN=$(claude setup-token) docker compose up -d --build
+
+# Docker (Azure Functions)
+CLAUDE_CODE_OAUTH_TOKEN=$(claude setup-token) docker compose -f docker-compose.azure.yml up -d --build
 ```
 
-For Azure Functions, set it as an app setting:
+For Azure Functions production, store the token in Key Vault and reference it
+as an app setting (see [deploy-azure-functions.md](deploy-azure-functions.md)):
+
 ```bash
+SECRET_URI=$(az keyvault secret show --vault-name my-vault --name claude-token --query id -o tsv)
 az functionapp config appsettings set \
   --name my-agent-app \
   --resource-group my-rg \
-  --settings CLAUDE_CODE_OAUTH_TOKEN="your-token"
+  --settings CLAUDE_CODE_OAUTH_TOKEN="@Microsoft.KeyVault(SecretUri=$SECRET_URI)"
 ```
 
 ### API authentication (optional)
@@ -551,7 +691,14 @@ claude mcp add --transport http \
 
 ### Via the chat UI
 
-Open `http://localhost:3000/chat` and type a goal. The UI shows:
+Open the chat URL for your mode and type a goal:
+
+| Mode | Chat URL |
+|---|---|
+| VM (Options A / B) | `http://localhost:3000/chat` |
+| Azure Functions (Options C / D) | `http://localhost:7071/api/chat` |
+
+The UI shows:
 
 1. **Status pipeline** — Generating Plan → Reviewing → Approved → Running → Complete
 2. **Plan card** — each tool step with status, expandable results
@@ -560,16 +707,21 @@ Open `http://localhost:3000/chat` and type a goal. The UI shows:
 ### Via curl
 
 ```bash
-# Submit a task
+# VM mode
 curl -sX POST localhost:3000/task \
   -H "content-type: application/json" \
   -d '{"goal":"What is the weather in Tokyo?"}'
 
-# Stream events
 curl -N localhost:3000/jobs/<jobId>/events
-
-# Poll result
 curl -s localhost:3000/jobs/<jobId>
+
+# Azure Functions mode (same commands, /api prefix)
+curl -sX POST localhost:7071/api/task \
+  -H "content-type: application/json" \
+  -d '{"goal":"What is the weather in Tokyo?"}'
+
+curl -N localhost:7071/api/jobs/<jobId>/events
+curl -s localhost:7071/api/jobs/<jobId>
 ```
 
 ### Via MCP
@@ -577,7 +729,11 @@ curl -s localhost:3000/jobs/<jobId>
 Connect any MCP-capable client:
 
 ```bash
+# VM mode
 claude mcp add --transport http my-agent http://127.0.0.1:3000/mcp
+
+# Azure Functions mode
+claude mcp add --transport http my-agent http://127.0.0.1:7071/api/mcp
 ```
 
 ---

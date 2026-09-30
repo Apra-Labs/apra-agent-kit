@@ -36,31 +36,66 @@ cd my-agent
 The command copies the kit, writes a starter workflow, and offers to install
 Fleet and the Claude CLI. It explains each step before it asks.
 
-Then set the token and start the server:
+Generate an OAuth token (required for all run modes):
 
-**Bash / macOS / Linux:**
 ```bash
+claude setup-token
+```
+
+Then pick how to run it:
+
+#### Without Docker
+
+```bash
+# Linux / macOS
 export CLAUDE_CODE_OAUTH_TOKEN="$(claude setup-token)"
 node host/index.mjs
 ```
 
-**PowerShell (Windows):**
 ```powershell
-$env:CLAUDE_CODE_OAUTH_TOKEN = "your-token"
+# Windows (PowerShell)
+$env:CLAUDE_CODE_OAUTH_TOKEN = (claude setup-token)
 node host/index.mjs
 ```
 
 Open [http://localhost:3000/chat](http://localhost:3000/chat) — your agent is live.
 
-Or with Docker:
+#### With Docker (VM)
+
 ```bash
-CLAUDE_CODE_OAUTH_TOKEN="your-token" docker compose up -d
+CLAUDE_CODE_OAUTH_TOKEN=$(claude setup-token) docker compose up -d --build
 ```
 
-The MCP server listens on `http://localhost:3000/mcp`. Register it with Claude Code:
+Open [http://localhost:3000/chat](http://localhost:3000/chat).
+
+#### With Docker (Azure Functions)
 
 ```bash
+CLAUDE_CODE_OAUTH_TOKEN=$(claude setup-token) docker compose -f docker-compose.azure.yml up -d --build
+```
+
+Open [http://localhost:7071/api/chat](http://localhost:7071/api/chat).
+
+#### Compare the two Docker modes
+
+| | `docker-compose.yml` (VM) | `docker-compose.azure.yml` (Azure) |
+|---|---|---|
+| Chat URL | `localhost:3000/chat` | `localhost:7071/api/chat` |
+| Jobs backend | SQLite (in-process) | Durable Functions (Azurite) |
+| Scaling | Single process | Horizontal (shared task hub) |
+| Scheduler | In-process (croner) | Azure Timer Triggers |
+| Production target | VM / Docker host | Azure Functions Premium |
+
+The token is passed from your shell — no `.env` file needed.
+
+#### Connect via MCP
+
+```bash
+# VM mode
 claude mcp add --transport http my-agent http://127.0.0.1:3000/mcp
+
+# Azure Functions mode
+claude mcp add --transport http my-agent http://127.0.0.1:7071/api/mcp
 ```
 
 Run `npm run doctor` in your project at any time to see what is missing.
@@ -159,6 +194,21 @@ knows, what tools to use, and any domain-specific rules.`,
       themes: ['blue'],           // 'apra', 'blue', or both for a toggle
     },
 
+    // Scheduler — run workflows on a cron schedule
+    scheduler: {
+      enabled: true,
+      schedules: [
+        {
+          name: 'morning-briefing',     // unique name for this schedule
+          workflow: 'hello',            // must match a registered workflow
+          args: {},                     // arguments passed to the workflow
+          cron: '0 9 * * *',           // standard cron: 9am daily
+          timezone: 'UTC',             // IANA timezone
+          overlap: 'skip',             // 'skip' (drop if previous still running) or 'queue'
+        },
+      ],
+    },
+
     // Memory (all tiers optional — uncomment what you need)
     // memory: {
     //   conversationContext: { enabled: true, mode: 'store', store: 'sqlite', dbPath: './memory/conversation.db' },
@@ -182,6 +232,7 @@ knows, what tools to use, and any domain-specific rules.`,
 | `modules.guardrails.defaultPolicy` | `'allow'`, `'deny'`, or `'approve'` (human-in-the-loop) |
 | `modules.dispatch.concurrency` | Max parallel tasks |
 | `modules.chat.themes` | `['blue']`, `['apra']`, or `['blue', 'apra']` for a toggle |
+| `modules.scheduler` | Run workflows on cron schedules. Timezone-aware, `skip` or `queue` overlap. See [docs/scheduled-workflows.md](docs/scheduled-workflows.md) |
 | `modules.memory.*` | Three-tier memory: conversation context, run state, long-term. See [docs/memory.md](docs/memory.md) |
 
 #### Choosing a strategy
@@ -393,9 +444,10 @@ with stdlib (`urllib`, `json`, `sys`). You can write tools in any language that 
 from `sys.argv` and prints JSON to stdout.
 
 **Q: How do I deploy to production?**
-Two paths: Docker Compose on a VM (uses Express + SQLite backend), or Azure Functions Premium
-(uses Durable Functions backend for managed scaling). See
-[docs/deploy-azure-functions.md](docs/deploy-azure-functions.md).
+Two paths: `docker compose up` on a VM (uses Express + SQLite backend), or
+`docker compose -f docker-compose.azure.yml up` for Azure Functions (uses Durable Functions
+for managed scaling). Both ship with the scaffold. For Azure production with Key Vault and
+horizontal scaling, see [docs/deploy-azure-functions.md](docs/deploy-azure-functions.md).
 
 **Q: What's the difference between workflows and agent reasoning?**
 If you already know the steps, write a workflow (plain code, exposed as a tool). It's faster,

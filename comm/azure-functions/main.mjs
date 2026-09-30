@@ -5,7 +5,7 @@ import { app } from '@azure/functions';
 import * as df from 'durable-functions';
 import { startHost } from '../../host/index.mjs';
 import { createLogger } from '../../host/logger.mjs';
-import { createAzureFunctionsAdapter, getHttpDurableClient } from './http.mjs';
+import { createAzureFunctionsAdapter, getHttpDurableClient, setLastDurableClient } from './http.mjs';
 import { registerDurableFunctions } from './index.mjs';
 
 const clientInput = df.input.durableClient();
@@ -37,7 +37,11 @@ await registerDurableFunctions({
 });
 
 if (started.scheduler?.registerTimerFunctions) {
-  started.scheduler.registerTimerFunctions(app);
+  started.scheduler.registerTimerFunctions(app, {
+    extraInputs: [clientInput],
+    getClient: (context) => df.getClient(context),
+    setClient: setLastDurableClient,
+  });
 }
 
 app.http('resetWorkers', {

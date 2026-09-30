@@ -19,15 +19,22 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /home/site/wwwroot
-COPY package.json package-lock.json ./
-RUN npm ci --omit=dev --include=optional
+COPY package.json package-lock.json* ./
+RUN if [ -f package-lock.json ]; then npm ci --omit=dev --include=optional; else npm install --omit=dev --include=optional; fi
 COPY . .
 # The Functions host loads `main` from this package.json; point it at the Functions entry.
 COPY deploy/azure-functions/wwwroot-package.json ./package.json
 COPY comm/azure-functions/host.json ./host.json
-# Adapter azure-functions + backend durable; replaces the repo's express/in-process config.
-COPY deploy/azure-functions/host.config.mjs ./host.config.mjs
-RUN node -e "import('./workflows/demo/ensure-apralabs.mjs').then(m => m.ensureApralabs())"
+# Patch the project's host.config.mjs for Azure Functions: switch adapter and dispatch backend.
+RUN node deploy/azure-functions/patch-config.mjs host.config.mjs
+RUN node -e "import('./transport/ensure-apralabs.mjs').then(m => m.ensureApralabs())"
+
+# Provision Fleet auth from env at startup, then hand off to the Functions host.
+COPY deploy/azure-functions/entrypoint.sh /usr/local/bin/agent-entrypoint.sh
+RUN chmod +x /usr/local/bin/agent-entrypoint.sh
+
+ENTRYPOINT ["/usr/local/bin/agent-entrypoint.sh"]
+CMD ["/opt/startup/start_nonappservice.sh"]
 
 HEALTHCHECK --interval=10s --timeout=5s --start-period=90s --retries=12 \
   CMD curl -fsS http://localhost/api/health || exit 1

@@ -78,10 +78,19 @@ When completing a travel planning task, your done result MUST include:
       enabled: true,
       fallbackStrategy: 'open-ended',
     },
-    // scheduler: {
-    //   enabled: false,
-    //   schedules: [],
-    // },
+    scheduler: {
+      enabled: true,
+      schedules: [
+        {
+          name: 'test-briefing',
+          workflow: 'city-briefing',
+          args: { city: 'Tokyo' },
+          cron: '*/2 * * * *',
+          timezone: 'UTC',
+          overlap: 'skip',
+        },
+      ],
+    },
     memory: {
       conversationContext: {
         enabled: true,
