@@ -11,7 +11,7 @@ import {
 import { planResume } from '../human-input/resume.mjs';
 import { answeredBatchesFromHistory } from '../human-input/ask.mjs';
 import { isStale, isExpired } from '../human-input/batch.mjs';
-import { checkpointKey } from '../checkpoint/record.mjs';
+import { checkpointKey, validateCheckpoint } from '../checkpoint/record.mjs';
 
 export const ORCHESTRATOR_NAME = 'runTaskOrchestrator';
 export const ACTIVITY_NAME = 'runTaskActivity';
@@ -90,6 +90,35 @@ function clientFactory({ client, getClient }) {
   if (typeof getClient === 'function') return getClient;
   if (client) return () => client;
   throw new Error('createDurableJobs requires a Durable client');
+}
+
+/**
+ * The state a paused run resumes from.
+ *
+ * Tried in order: the checkpoint entity in the task hub, then an injected
+ * store, then nothing — which makes the caller rebuild from history.
+ *
+ * An unreadable entity is **not** a refused answer. A run parked by an older
+ * kit has no entity at all, and throwing here would strand every run that was
+ * already waiting when the host was upgraded.
+ */
+async function loadPausedState(client, taskKey, checkpoint, logger, jobId) {
+  if (typeof client?.readEntityState === 'function') {
+    try {
+      const df = await import('durable-functions');
+      const res = await client.readEntityState(new df.EntityId('checkpoint', taskKey));
+      if (res?.entityExists && res.entityState) {
+        const verdict = validateCheckpoint(res.entityState);
+        if (verdict.ok) return verdict;
+        logger.warn?.(`[durable] job ${jobId} checkpoint entity unusable (${verdict.reason}); rebuilding from history`);
+        return verdict;
+      }
+    } catch (err) {
+      logger.warn?.(`[durable] job ${jobId} could not read its checkpoint entity: ${err?.message ?? err}`);
+    }
+  }
+  if (checkpoint) return checkpoint.load(taskKey);
+  return { ok: false, reason: 'absent' };
 }
 
 export function createDurableJobs({ client, getClient, config, notifier = null, logger = console, allowHttpCallbacks = false, checkpoint = null, kitVersion = null, now = () => new Date() }) {
@@ -271,7 +300,10 @@ export function createDurableJobs({ client, getClient, config, notifier = null, 
       // so without this read the run resumes from an empty history and re-does
       // every step it had already completed — including the irreversible ones.
       const taskKey = record?.checkpointKey ?? checkpointKey({ id: jobId });
-      const loaded = checkpoint ? await checkpoint.load(taskKey) : { ok: false, reason: 'absent' };
+      // The state lives in the task hub as an entity, so a default deployment
+      // needs neither Cosmos nor SQL. The injected store is the fallback for a
+      // host configured with one, and for tests that do not have a hub.
+      const loaded = await loadPausedState(bound, taskKey, checkpoint, logger, jobId);
       if (checkpoint && !loaded.ok && loaded.reason !== 'absent') {
         logger.warn(`[durable] job ${jobId} resumed from history (${loaded.reason}); its checkpoint was unusable`);
       }

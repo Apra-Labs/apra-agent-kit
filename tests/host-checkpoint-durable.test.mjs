@@ -282,3 +282,85 @@ test('a question asked during the run reaches the history', async () => {
   assert.ok(types.includes('question_asked'), `no question_asked in ${types}`);
   assert.ok(types.includes('answer_received'), `no answer_received in ${types}`);
 });
+
+// ---------------------------------------------------------------------------
+// Task 4: resume reads the entity
+//
+// The checkpoint lives in the task hub now, so `provideInput` must follow the
+// pointer to an entity rather than to the memory store. A paused run created
+// before entities existed has no entity at all, and must still resume.
+// ---------------------------------------------------------------------------
+
+function clientWithEntity(entityState, output = paused()) {
+  const calls = { startNew: [], read: [] };
+  const instances = {
+    'job-1': {
+      instanceId: 'job-1', runtimeStatus: 'Completed', output,
+      customStatus: { status: 'waiting_input' },
+      input: { record: { id: 'job-1', task: { goal: 'g' } }, task: { id: 'job-1', goal: 'g' }, metadata: {} },
+      createdTime: '2026-09-30T09:00:00.000Z', lastUpdatedTime: '2026-09-30T09:00:00.000Z',
+    },
+  };
+  return {
+    calls, instances,
+    async startNew(name, { instanceId, input }) { calls.startNew.push({ name, instanceId, input }); return instanceId; },
+    async getStatus(id) { return instances[id] ?? null; },
+    async getStatusBy() { return []; },
+    async terminate() {}, async raiseEvent() {},
+    async readEntityState(id) {
+      calls.read.push(id);
+      return { entityExists: entityState !== null, entityState };
+    },
+  };
+}
+
+test('answering reads the run state back out of the checkpoint entity', async () => {
+  const obs = [{ type: 'observation', stepType: 'tool', tool: 'book', result: { ok: true, ref: 'FL-1' } }];
+  const client = clientWithEntity({
+    version: 1, taskKey: 'cp-job-1', jobId: 'job-1',
+    task: { id: 'job-1', goal: 'g' },
+    observations: obs,
+    plan: { steps: [{ type: 'tool', tool: 'book', args: {}, reason: 'r', review: false }], cursor: 1 },
+    interruptions: 2, identity: null, idempotencyKeys: [], conversation: [], recalledFacts: [],
+  });
+
+  const jobs = createDurableJobs({
+    client, config: { maxQueueSize: 2, durable: { pollMs: 5 } },
+    notifier: null, logger: { warn() {}, info() {} },
+  });
+
+  const out = await jobs.provideInput('job-1', { batchId: aBatch().batchId, answers: { proceed: 'approve' } }, {});
+  assert.equal(out.ok, true, JSON.stringify(out));
+  assert.ok(client.calls.read.length >= 1, 'it followed the pointer to the entity');
+
+  const resume = client.calls.startNew[0].input.resume;
+  assert.deepEqual(resume.resumeFrom.observations, obs, 'the completed work came back');
+  assert.equal(resume.resumeFrom.plan.cursor, 1);
+  assert.equal(resume.resumeFrom.interruptions, 2);
+});
+
+test('a paused run with no entity still resumes, from history', async () => {
+  // A run parked by an older kit has no entity. Rebuilding from history is
+  // worse than reading a checkpoint, but it is not a failure — and throwing
+  // here would strand every run that was already waiting at upgrade time.
+  const client = clientWithEntity(null);
+  const jobs = createDurableJobs({
+    client, config: { maxQueueSize: 2, durable: { pollMs: 5 } },
+    notifier: null, logger: { warn() {}, info() {} },
+  });
+
+  const out = await jobs.provideInput('job-1', { batchId: aBatch().batchId, answers: { proceed: 'approve' } }, {});
+  assert.equal(out.ok, true, JSON.stringify(out));
+  assert.ok(client.calls.startNew.length === 1, 'the answer still started the next orchestration');
+});
+
+test('an entity that cannot be read does not fail the answer', async () => {
+  const client = clientWithEntity(null);
+  client.readEntityState = async () => { throw new Error('entity store down'); };
+  const jobs = createDurableJobs({
+    client, config: { maxQueueSize: 2, durable: { pollMs: 5 } },
+    notifier: null, logger: { warn() {}, info() {} },
+  });
+  const out = await jobs.provideInput('job-1', { batchId: aBatch().batchId, answers: { proceed: 'approve' } }, {});
+  assert.equal(out.ok, true, 'degraded recovery, not a refused answer');
+});

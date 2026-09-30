@@ -326,9 +326,19 @@ The `pause_too_large` guard remains as an assertion — if it ever fires,
 something has started putting state back in the output, and failing loudly
 beats truncating a pointer into nonsense.
 
-On Functions the memory store must therefore be one the host can reach from the
-activity — `cosmos`, not the VM's sqlite file. Set `dispatch.store.kind` to
-`cosmos` to keep job state outside the task hub as well.
+On Functions the state lives in the **task hub itself**, as Durable Entities:
+one per run for the checkpoint, one per session for chat history, one per person
+for long-term facts. A Functions host has ephemeral, per-instance local disk, so
+sqlite there meant a checkpoint that did not survive between invocations — and
+the task hub is already provisioned, so this costs an adopter nothing.
+
+**No Cosmos account and no SQL server are required.** Both remain selectable:
+set `memory.*.store` to `cosmos` or `mssql` if you want them.
+
+Entities are why the orchestrator, not the activity, drives the run loop:
+`callEntity` is a confirmed write and is reachable only from the orchestrator
+generator, while an activity has `signalEntity`, which is fire-and-forget. A
+checkpoint nobody confirmed is one the run may lose.
 
 ### What is covered end to end
 

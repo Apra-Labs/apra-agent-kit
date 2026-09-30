@@ -12,7 +12,7 @@ import { createMemoryEvents } from './events.mjs';
 import { buildMemoryRoutes } from './routes.mjs';
 import { preloadKnowledge } from './preloader.mjs';
 
-async function resolveStore(config) {
+async function resolveStore(config, getDurableClient = null) {
   if (typeof config.store === 'function') {
     return assertMemoryStore(config.store(config));
   }
@@ -23,16 +23,41 @@ async function resolveStore(config) {
       const { createCosmosStore } = await import('./store/cosmos.mjs');
       return createCosmosStore(config.cosmos ?? {});
     }
+    // The task hub. The default on Azure Functions, so a deployment needs no
+    // Cosmos account and no SQL server.
+    case 'entity': {
+      const { createEntityStore } = await import('./store/entity.mjs');
+      return createEntityStore({
+        getClient: config.getClient ?? getDurableClient,
+        partition: config.partition,
+        maxEntries: config.maxEntries,
+      });
+    }
+    case 'mssql': {
+      const { createMssqlStore } = await import('./store/mssql.mjs');
+      return createMssqlStore(config.mssql ?? {});
+    }
     default: return createFilesystemStore({ dir: config.dir ?? './memory' });
   }
 }
 
-async function resolveConversationStore(config) {
+async function resolveConversationStore(config, getDurableClient = null) {
   if (typeof config.store === 'function') {
     return assertConversationStore(config.store(config));
   }
   switch (config.store) {
     case 'sqlite': return createConversationSqliteStore({ dbPath: config.dbPath ?? './memory/conversation.db' });
+    case 'entity': {
+      const { createConversationEntityStore } = await import('./conversation-store/entity.mjs');
+      return createConversationEntityStore({
+        getClient: config.getClient ?? getDurableClient,
+        maxTotalTurns: config.maxTotalTurns,
+      });
+    }
+    case 'mssql': {
+      const { createConversationMssqlStore } = await import('./conversation-store/mssql.mjs');
+      return createConversationMssqlStore(config.mssql ?? {});
+    }
     case 'cosmos': {
       const { createConversationCosmosStore } = await import('./conversation-store/cosmos.mjs');
       return createConversationCosmosStore(config.cosmos ?? {});
@@ -55,7 +80,7 @@ function interpolateConfigStrings(obj, env) {
   return out;
 }
 
-export async function createMemoryModule(memoryConfig, { notifier, fleetApi, logger = console } = {}) {
+export async function createMemoryModule(memoryConfig, { notifier, fleetApi, logger = console, getDurableClient = null } = {}) {
   const events = createMemoryEvents({
     notifier,
     level: memoryConfig?.events?.level ?? 'notifications',
@@ -81,11 +106,11 @@ export async function createMemoryModule(memoryConfig, { notifier, fleetApi, log
   // read so an existing config keeps working.
   const cpConfig = memoryConfig?.checkpoint ?? memoryConfig?.runState ?? null;
   const checkpointStore = cpConfig && cpConfig.enabled !== false
-    ? await resolveStore(cpConfig)
+    ? await resolveStore(cpConfig, getDurableClient)
     : null;
   const ltm = ltConfig?.enabled
     ? await (async () => {
-        ltmStore = await resolveStore(ltConfig);
+        ltmStore = await resolveStore(ltConfig, getDurableClient);
         return createLongTermMemory({
           store: ltmStore,
           decayConfig: ltConfig.decay ?? {},
@@ -113,7 +138,7 @@ export async function createMemoryModule(memoryConfig, { notifier, fleetApi, log
   if (ccConfig?.enabled) {
     const ccMode = ccConfig.mode ?? 'store';
     if (ccMode === 'store') {
-      const ccStore = await resolveConversationStore(ccConfig);
+      const ccStore = await resolveConversationStore(ccConfig, getDurableClient);
       cc = createConversationContext({
         store: ccStore,
         engine,

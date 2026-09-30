@@ -201,7 +201,14 @@ export async function startHost({
   const memoryConfig = config.modules?.memory;
   if (memoryConfig && memoryConfig.enabled !== false) {
     try {
-      memory = await createMemoryModule(memoryConfig, { notifier, fleetApi: api, logger: logger.child('memory') });
+      // Entity-backed stores reach the task hub through the Durable client, so
+      // they need it injected — a config file cannot carry a live client.
+      memory = await createMemoryModule(memoryConfig, {
+        notifier, fleetApi: api, logger: logger.child('memory'),
+        getDurableClient: typeof getDurableClient === 'function'
+          ? getDurableClient
+          : (durableClient ? () => durableClient : null),
+      });
       await memory.open();
       if (memory?.longTerm) toolRegistry.push(...withMemoryTools([], memory.longTerm, memory.events));
     } catch (err) {

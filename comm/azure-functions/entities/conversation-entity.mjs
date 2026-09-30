@@ -32,6 +32,11 @@ export const conversationOps = {
     return state?.turns ?? [];
   },
 
+  /** Replace the list wholesale. The entity holds the turns, not each turn. */
+  replaceAll(state, { turns }) {
+    return { ...(state ?? {}), turns: (turns ?? []).map(scrub) };
+  },
+
   clear() {
     return null;
   },
