@@ -3,10 +3,11 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { resolveDispatchConfig, resolveNotifyConfigWithEnv } from './jobs/config.mjs';
+import { resolveSchedulerConfig } from './scheduler/config.mjs';
 
 const SUPPORTED_ADAPTERS = new Set(['express', 'raw-http', 'azure-functions']);
-const KNOWN_MODULES = new Set(['runLoop', 'memory', 'budgets', 'guardrails', 'evals', 'dispatch', 'notify', 'chat', 'router']);
-const IMPLEMENTED_MODULES = new Set(['runLoop', 'budgets', 'guardrails', 'dispatch', 'notify', 'chat', 'router', 'memory', 'evals']);
+const KNOWN_MODULES = new Set(['runLoop', 'memory', 'budgets', 'guardrails', 'evals', 'dispatch', 'notify', 'chat', 'router', 'scheduler']);
+const IMPLEMENTED_MODULES = new Set(['runLoop', 'budgets', 'guardrails', 'dispatch', 'notify', 'chat', 'router', 'memory', 'evals', 'scheduler']);
 
 export async function loadConfig(configDir, env = process.env) {
   const raw = await resolveConfig(configDir);
@@ -173,6 +174,17 @@ function validate(raw, env) {
   if (router.enabled) {
     console.warn('[host/config] router enabled — tasks will be classified before execution');
   }
+
+  const schedulerConfig = resolveSchedulerConfig(modules.scheduler, { env, dispatchConfig: modules.dispatch });
+  if (schedulerConfig.enabled) {
+    if (!modules.dispatch?.enabled) {
+      throw new Error('scheduler enabled but dispatch disabled — the scheduler submits jobs; enable dispatch or disable scheduler');
+    }
+    if (!Array.isArray(schedulerConfig.schedules) || schedulerConfig.schedules.length === 0) {
+      console.warn('[host/config] scheduler enabled but no schedules configured');
+    }
+  }
+  modules.scheduler = Object.freeze(schedulerConfig);
 
   const notify = resolveNotifyConfigWithEnv(modules.notify ?? {}, env);
   if (notify.webhook.allowHttp) console.warn('[host/config] notify.webhook.allowHttp is on — plain-http callback URLs are accepted');

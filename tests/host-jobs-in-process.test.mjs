@@ -403,6 +403,19 @@ test('cancel during claim window aborts the reserved processing job', async () =
   }
 });
 
+test('listByStatus returns store records for the requested status', async () => {
+  const { jobs, runner } = await setup({ concurrency: 1, capacity: 1 });
+  const { jobId } = await jobs.submit({ goal: 'hold' });
+  await runner.waitFor(jobId);
+  const queued = await jobs.submit({ goal: 'wait' });
+  assert.deepEqual((await jobs.listByStatus('processing')).map(r => r.id), [jobId]);
+  assert.deepEqual((await jobs.listByStatus('queued')).map(r => r.id), [queued.jobId]);
+  await runner.finish(jobId);
+  await runner.waitFor(queued.jobId);
+  await runner.finish(queued.jobId);
+  await jobs.stop();
+});
+
 test('stop during claim window aborts reserved jobs and does not close the store under in-flight runOne', async () => {
   const store = createMemoryStore();
   const gate = gateClaim(store);
@@ -439,4 +452,33 @@ test('stop during claim window aborts reserved jobs and does not close the store
     gate.release();
     await finishPending(runner);
   }
+});
+
+test('submit with workflow strategy reaches runJob after persistence', async () => {
+  const runner = makeRunner();
+  const seen = [];
+  const inner = runner.runJob;
+  runner.runJob = (task, opts) => {
+    seen.push(task);
+    return inner(task, opts);
+  };
+  const { jobs } = await setup({}, runner);
+  try {
+    const workflow = 'city-briefing';
+    const { jobId } = await jobs.submit({
+      goal: 'Scheduled workflow: city-briefing',
+      workflow,
+      inputs: { city: 'Tokyo' },
+      strategy: 'workflow',
+    });
+    await runner.waitFor(jobId);
+    assert.equal(seen.length, 1);
+    assert.equal(seen[0].strategy, 'workflow');
+    assert.equal(seen[0].workflow, workflow);
+    assert.deepEqual(seen[0].inputs, { city: 'Tokyo' });
+    const stored = await jobs.get(jobId);
+    assert.equal(stored.task.strategy, 'workflow');
+    assert.equal(stored.task.workflow, workflow);
+    await runner.finish(jobId);
+  } finally { await jobs.stop(); }
 });

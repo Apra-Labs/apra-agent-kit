@@ -78,7 +78,20 @@ When completing a travel planning task, your done result MUST include:
     },
     router: {
       enabled: true,
-      fallbackStrategy: 'open-ended',
+      fallbackStrategy: 'plan-execute',
+    },
+    scheduler: {
+      enabled: true,
+      schedules: [
+        {
+          name: 'test-briefing',
+          workflow: 'city-briefing',
+          args: { city: 'Tokyo' },
+          cron: '*/2 * * * *',
+          timezone: 'UTC',
+          overlap: 'skip',
+        },
+      ],
     },
     memory: {
       conversationContext: {

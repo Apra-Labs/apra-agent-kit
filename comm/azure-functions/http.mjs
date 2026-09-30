@@ -16,6 +16,10 @@ export function getHttpDurableClient() {
   throw new Error('Durable client is only available during an HTTP invocation');
 }
 
+export function setLastDurableClient(client) {
+  lastDurableClient = client;
+}
+
 export const toFunctionsRoute = (path) =>
   path.replace(/^\//, '').replace(/:([A-Za-z_][A-Za-z0-9_]*)/g, '{$1}');
 

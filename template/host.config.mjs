@@ -54,7 +54,21 @@ than "you can use X".`,
     },
     router: {
       enabled: true,
-      fallbackStrategy: 'open-ended',
+      fallbackStrategy: 'plan-execute',
+    },
+
+    scheduler: {
+      enabled: true,
+      schedules: [
+        {
+          name: 'hello-every-2m',
+          workflow: 'hello',
+          args: {},
+          cron: '*/2 * * * *',
+          timezone: 'UTC',
+          overlap: 'skip',
+        },
+      ],
     },
 
     // -- Memory (uncomment tiers you need) --

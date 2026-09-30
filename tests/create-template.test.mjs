@@ -60,7 +60,9 @@ test('the template holds exactly the agreed files', () => {
   assert.deepEqual(found.sort(), [
     'Dockerfile',
     'README.md',
+    'docker-compose.azure.yml',
     'docker-compose.yml',
+    'docker-entrypoint.sh',
     'evals/suites/hello.json',
     'evals/suites/scripts/hello-happy.json',
     'gitignore',
