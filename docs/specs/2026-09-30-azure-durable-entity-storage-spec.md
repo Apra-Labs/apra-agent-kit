@@ -71,7 +71,8 @@ Azure Storage provider's actual behaviour around large payloads (queue-message
 caps, automatic blob offloading, and what applies to *entity state* specifically
 as opposed to messages) is the one thing in this spec I could not verify from
 the repo. **This must be measured on a real Azurite run before the design
-depends on it** — see the spike in §5. Designing to an unverified limit is how
+depends on it** — measured on the `e2e:durable` run in §7. Designing to an
+unverified limit is how
 `pause_too_large` came to exist in the first place.
 
 ### (c) Do long-term facts need search?
@@ -182,58 +183,104 @@ This is a recommendation, not a decision — it is Open Question 1.
 
 ---
 
-## 5. The blocker: the orchestrator can currently yield only once
+## 5. Multi-yield: resolved, not a blocker
 
-**This is the item most likely to sink the plan, and it needs a spike before
-anything else is built.**
+An earlier draft of this spec made this a blocking spike. **That was
+over-cautious.** Reading the commit that introduced the single-yield rule
+(`b83f2d8`) identifies the cause exactly, and it is not yield count.
 
-Plan rule 2 — "split each irreversible step into its own activity and record the
-checkpoint in the orchestrator after it returns" — requires the orchestrator to
-yield many times per run: one `callActivity` per step, plus one `callEntity` per
-checkpoint. The orchestrator today yields **exactly once**, on purpose, and the
-reason is a scar (`comm/azure-functions/orchestrator.mjs:50-55`):
+### 5.1 What actually broke
 
-> Single yield — one activity, one dispatch. The previous `for(;;)` loop
-> consumed `waitForExternalEvent('progress')` events, but each replay shifted
-> the Durable SDK's event-ID counter, causing `callActivity()` to schedule a
-> **NEW** activity on every replay instead of matching the original. Result:
-> N progress events → N+1 activities → worker pool exhaustion.
+The old orchestrator (`b83f2d8^`):
 
-**My read:** multi-yield is the normal Durable pattern — sequential activities
-and fan-out/fan-in are textbook — so the bug was almost certainly the
-*interleaving* of externally-raised `progress` events with `callActivity` in a
-loop, not multi-yield itself. Removing the progress-event channel should fix it.
-But "almost certainly" is not good enough given this repo already lost a worker
-pool to it once, and given the Azure path has **never been run end to end**
-(see §7).
+```js
+const activity = df.callActivity(ACTIVITY_NAME, {...});   // created ONCE
+for (;;) {
+  const progress = df.waitForExternalEvent('progress');   // created EVERY iteration
+  const cancel   = df.waitForExternalEvent('cancel');     // created EVERY iteration
+  const winner = yield df.Task.any([activity, progress, cancel]);
+  if (winner === activity) break;
+  ...
+}
+```
 
-**Spike, before any other work:** a throwaway orchestrator that yields
-`callActivity` three times and `callEntity` twice against Azurite, with progress
-events removed; assert exactly three activity executions across replays. If it
-fails, §6 is the fallback.
+The Durable SDK assigns each task an event ID **by creation order**. The number
+of loop iterations here depends on how many `progress` events had been raised by
+the time of a given replay — that is wall-clock, not history. So:
 
-### 5.1 The architectural cost nobody has priced yet
+- replay with 0 progress events → 2 `waitForExternalEvent` tasks created
+- replay with 4 progress events → 10 created
 
-Even if the spike passes, moving per-step control into the orchestrator is a
-**large** change, and larger than the plan's wording suggests:
+Different task-creation counts on each replay shifted the counter, so on the
+next replay `callActivity`'s ID no longer matched its history entry. The SDK
+concluded it was a *new* activity and scheduled another. One request produced
+**125 activities** and exhausted the pool (5 busy + 20 queued → `dispatch_failed`).
+
+That is a textbook non-determinism bug. Its cause is **a loop whose iteration
+count depends on external event arrival**. It is not "yielding more than once."
+
+### 5.2 Why multi-yield is safe here
+
+Deterministic multi-yield is the pattern Durable exists for — function chaining
+and fan-out/fan-in are Microsoft's own canonical samples. The rule is that the
+sequence of yields must be a pure function of orchestration history:
+
+```js
+const plan = yield df.callActivity('plan', input);     // replay: same result from history
+for (const step of plan.steps) {                       // replay: same iteration count
+  const r = yield df.callActivity('step', step);       // replay: same IDs, matched
+  yield df.callEntity(cpEntity, 'save', r);
+}
+```
+
+On replay the plan comes back from history identically, so the loop runs the
+same number of times in the same order, and every task ID matches.
+
+**The cause is already gone.** The current orchestrator contains no
+`waitForExternalEvent`, no `Task.any`, and no external events whatsoever —
+cancellation is polled by the activity through `getStatus`
+(`activity.mjs:42`). There is nothing left to drift the counter.
+
+### 5.3 The rule this imposes
+
+Any orchestrator work must obey, and the review should check it:
+
+1. **No `waitForExternalEvent` in a loop**, and preferably not at all. Keep
+   cancellation on the existing poll.
+2. **No `Task.any` racing an external event against an activity.**
+3. **Yield sequence derives only from input and prior activity results** — never
+   from wall-clock time, `Math.random`, or event arrival.
+4. Task objects are created in a fixed order per replay.
+
+### 5.4 Call
+
+**Proceed with multi-yield. No separate spike.** The one genuine residual risk —
+that the SDK's counter behaves differently than the mechanism above predicts —
+is already covered by the `e2e:durable` gate in §7, which has to run anyway.
+Folding it there costs nothing; a standalone spike would be a second Azurite
+setup to learn the same fact.
+
+If `e2e:durable` shows duplicate activity executions, §6 is the fallback.
+
+### 5.5 The architectural cost, which still stands
+
+This is a real decision and is **not** resolved by the above.
 
 - Today the run loop lives in the **activity**: `activity.mjs` → `executeHostedTask`
   → the strategy, which owns the plan/execute loop.
 - Those strategies are **shared with the VM path**. One code path, two
-  deployments — that is what makes the black-box e2e suite able to prove both.
+  deployments — that is what lets one black-box e2e suite prove both.
 - The plan isn't known until an LLM produces it, *inside* an activity. So the
   shape becomes `activity(plan)` → orchestrator loops → `activity(step)` × N,
-  and the orchestrator becomes a second plan-execute loop that exists only on
-  Azure.
+  and the orchestrator becomes a second plan-execute loop existing only on Azure.
 
-That forks the execution model between VM and Functions. It is defensible — it
-buys per-step durability that a single long activity cannot give — but it should
-be an explicit decision, not a side effect of a storage change. It is Open
-Question 2.
+That forks the execution model between VM and Functions. It buys per-step
+durability a single long activity cannot give, which is a real benefit — but it
+should be chosen deliberately. It remains Open Question 2.
 
 ---
 
-## 6. Fallback if the spike fails
+## 6. Fallback if e2e:durable shows duplicate activities
 
 Keep the single activity, and have the activity write checkpoints through an
 **HTTP call to an entity** via the Durable client binding (`signalEntity` plus a
@@ -288,12 +335,12 @@ storage account, so the Azurite harness should need no change.
 
 ## 10. Recommended order
 
-1. Get `e2e:durable` green on the current branch (needs Docker). **Gate.**
-2. Spike the multi-yield orchestrator (§5). **Gate.**
-3. Resolve Open Questions 1–3.
-4. Entity adapter for the checkpoint — smallest, clearest win, one key, cleared
+1. Get `e2e:durable` green on the current branch (needs Docker). **Gate** —
+   this also confirms multi-yield determinism (§5.4); there is no separate spike.
+2. Resolve Open Questions 1–3.
+3. Entity adapter for the checkpoint — smallest, clearest win, one key, cleared
    on settle.
-5. Entity adapter for the conversation store.
-6. Long-term facts, per the answer to Q1.
-7. SQL adapter behind the same interface.
-8. Retention job for entities.
+4. Entity adapter for the conversation store.
+5. Long-term facts, per the answer to Q1.
+6. SQL adapter behind the same interface.
+7. Retention job for entities.
