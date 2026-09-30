@@ -319,17 +319,51 @@ storage account, so the Azurite harness should need no change.
 
 ---
 
-## 9. Open questions
+## 9. Decisions
 
-1. **Long-term facts: entities or Cosmos by default?** §4.4 recommends Cosmos —
-   it is the only store with a real cross-cutting query and unbounded growth.
-   Entities would work but load ~500 facts per recall.
-2. **Do we accept forking the execution model?** Per-step activities give real
-   per-step durability but put a second plan-execute loop in the orchestrator,
-   Azure-only, diverging from the VM path that shares the strategies today.
-3. **SQL adapter — which SQL?** Azure SQL, or SQL Server generally? It decides
-   the driver dependency (`mssql` vs `tedious`) and whether it can be
-   lazy-loaded the way the Cosmos adapter is.
+All three questions are settled. Recorded here because they are constraints on
+the plan, not preferences.
+
+**1. Entities are the default for all three stores.** Checkpoint, conversation
+and long-term facts. **Cosmos and SQL are selectable adapters only, never the
+default.** This is a strict instruction: a default deployment must not require a
+Cosmos account or a SQL server.
+
+This overrides §4.4, which recommended Cosmos for long-term facts because they
+need real queries. The concern stands technically — a per-user entity holds ≤500
+facts (`maxEntries`) and every recall loads the whole state to filter it — but
+the no-external-dependency requirement wins, and the cap keeps it bounded. The
+§10 alert thresholds are how we find out if that becomes a problem in practice.
+
+**2. Forking the execution model is accepted.** Per-step activities with the
+orchestrator driving the loop and committing checkpoints via `callEntity`.
+
+**3. SQL means Microsoft SQL Server** — the one used with SSMS. Driver: `mssql`,
+lazy-loaded the way the Cosmos adapter already is, so a clone that never selects
+it never installs it.
+
+### 9.1 The consequence that shapes everything
+
+Verified against `durable-functions@3.5.0` type definitions:
+
+| API | Where | Confirmed? |
+|---|---|---|
+| `callEntity(id, op, input): Task` | orchestration context only | **yes** — must be `yield`ed |
+| `signalEntity(id, op, input): void` | orchestration **and** client | no — fire and forget |
+| `readEntityState(id)` | client (so: usable from an activity) | read only |
+
+`callEntity` returns a Task that must be yielded, so it is reachable **only from
+the orchestrator generator**. An orchestrator is a generator and cannot `await`
+a promise — doing so breaks replay determinism.
+
+**Therefore the entity-backed checkpoint cannot be implemented behind the
+existing `MEMORY_STORE_METHODS` interface**, which is promise-based and called
+with `await` from inside the activity. On Azure the checkpoint stops travelling
+through `host/memory/store/*` altogether; the orchestrator addresses the entity
+directly.
+
+That is not an adapter. It is a second execution path, which is what decision 2
+accepts. The VM path is untouched and keeps using the store interface.
 
 ---
 
