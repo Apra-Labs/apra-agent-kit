@@ -1,6 +1,6 @@
 // host/strategies/plan-execute.mjs
 import { parseResponse } from '../response-parser.mjs';
-import { checkpointKey } from '../checkpoint/record.mjs';
+import { checkpointKey, stepIdempotencyKey } from '../checkpoint/record.mjs';
 import {
   buildSystemPrompt, buildPlanPrompt, buildReviewPrompt, buildStepReviewPrompt,
   buildResolveArgsPrompt, buildReasonPrompt, buildReplanPrompt, buildExecutePrompt,
@@ -282,7 +282,7 @@ export function createPlanExecuteStrategy({
       for (let i = start; i < steps.length; i++) {
         const step = steps[i];
         progressCursor = i;
-        const idempotencyKey = `${step.tool ?? step.type}-${JSON.stringify(step.args ?? {})}-${i}`;
+        const idempotencyKey = stepIdempotencyKey(step, i);
         if (checkpoint && taskKey && await checkpoint.hasIdempotencyKey(taskKey, idempotencyKey)) {
           continue;   // already done before a crash; do not run it twice
         }

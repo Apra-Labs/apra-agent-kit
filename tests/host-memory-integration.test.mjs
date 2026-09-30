@@ -12,6 +12,7 @@ import { buildSystemPrompt } from '../host/prompts/system.mjs';
 
 const { createOpenEndedStrategy } = await import('../host/strategies/open-ended.mjs');
 const { createPlanExecuteStrategy } = await import('../host/strategies/plan-execute.mjs');
+const { stepIdempotencyKey } = await import('../host/checkpoint/record.mjs');
 const { runTask } = await import('../host/run-loop.mjs');
 const { executeHostedTask } = await import('../host/tasks.mjs');
 const { startHost, createHost } = await import('../host/index.mjs');
@@ -156,7 +157,10 @@ test('plan-execute checkpoints after each step and skips idempotent steps on res
     name: 'weather', reversible: true, timeout: 5000,
     run: async () => { calls += 1; return { temp_c: '15' }; },
   }];
-  const key = `weather-${JSON.stringify({ city: 'London' })}-0`;
+  // Built the way the strategy builds it. The key embeds a hash of the
+  // scrubbed args, not the args themselves — a credential in a step argument
+  // used to be written verbatim into this string.
+  const key = stepIdempotencyKey({ tool: 'weather', args: { city: 'London' } }, 0);
   const checkpoint = fakeCheckpoint();
 
   const first = createPlanExecuteStrategy({

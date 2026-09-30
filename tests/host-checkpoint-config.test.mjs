@@ -19,7 +19,14 @@ import assert from 'node:assert/strict';
 const { assertHumanInputDependencies, describeStartupFailure } =
   await import('../host/config.mjs');
 
-const on = { humanInput: { enabled: true }, memory: { enabled: true }, dispatch: { enabled: true } };
+// A configuration that genuinely works. `memory: { enabled: true }` alone does
+// not: with no checkpoint block the store resolves to null and every pause
+// fails, so the block is part of what "on" means.
+const on = {
+  humanInput: { enabled: true },
+  memory: { enabled: true, checkpoint: { enabled: true, store: 'sqlite' } },
+  dispatch: { enabled: true },
+};
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -131,4 +138,66 @@ test('startup failure: the error name survives, because it is not sensitive', ()
 test('startup failure: a cause with no message still produces something readable', () => {
   assert.match(describeStartupFailure(null), /memory store/);
   assert.match(describeStartupFailure(undefined), /memory store/);
+});
+
+// ---------------------------------------------------------------------------
+// Memory "enabled" is not the same as a checkpoint store existing
+//
+// `memory: { enabled: true }` with no `checkpoint` block resolves to a null
+// store, so the host started happily and then every pause died on
+// "Cannot read properties of null (reading 'save')" — a raw null-deref,
+// surfaced on the job record over GET /jobs/:id. That is exactly the failure
+// this check exists to move to startup.
+// ---------------------------------------------------------------------------
+
+test('memory enabled with no checkpoint block is refused at startup', () => {
+  assert.throws(
+    () => assertHumanInputDependencies({
+      humanInput: { enabled: true },
+      dispatch: { enabled: true },
+      memory: { enabled: true, longTerm: { enabled: true } },
+    }),
+    /checkpoint/,
+  );
+});
+
+test('an explicitly disabled checkpoint block is refused too', () => {
+  assert.throws(
+    () => assertHumanInputDependencies({
+      humanInput: { enabled: true },
+      dispatch: { enabled: true },
+      memory: { enabled: true, checkpoint: { enabled: false } },
+    }),
+    /checkpoint/,
+  );
+});
+
+test('the former runState name still satisfies the check', () => {
+  assert.doesNotThrow(() => assertHumanInputDependencies({
+    humanInput: { enabled: true },
+    dispatch: { enabled: true },
+    memory: { enabled: true, runState: { enabled: true, store: 'sqlite' } },
+  }));
+});
+
+test('a configured checkpoint block passes', () => {
+  assert.doesNotThrow(() => assertHumanInputDependencies({
+    humanInput: { enabled: true },
+    dispatch: { enabled: true },
+    memory: { enabled: true, checkpoint: { enabled: true, store: 'sqlite' } },
+  }));
+});
+
+test('the refusal names no environment value', () => {
+  // Same rule as describeStartupFailure: say what is wrong, never quote a
+  // connection string, key or path.
+  try {
+    assertHumanInputDependencies({
+      humanInput: { enabled: true }, dispatch: { enabled: true },
+      memory: { enabled: true, checkpoint: { enabled: false, dbPath: '/srv/secret-path/memory.db' } },
+    });
+    assert.fail('should have thrown');
+  } catch (err) {
+    assert.equal(err.message.includes('/srv/secret-path'), false);
+  }
 });

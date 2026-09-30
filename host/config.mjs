@@ -308,6 +308,19 @@ export function assertHumanInputDependencies(modules, { memoryStarted = true, ca
     );
   }
 
+  // `memory.enabled` is not the same as a checkpoint store existing. With no
+  // block the store resolves to null, the host starts happily, and every pause
+  // then dies on a raw null-deref that surfaces on the job record. Same rule as
+  // describeStartupFailure: name the setting, never quote its value.
+  const cp = modules.memory.checkpoint ?? modules.memory.runState ?? null;
+  if (!cp || cp.enabled === false) {
+    throw new Error(
+      'humanInput requires memory.checkpoint — a paused run stores its state there, and without ' +
+      'it the failure would surface at the first question rather than here. Configure ' +
+      'modules.memory.checkpoint (formerly memory.runState) or disable modules.humanInput.',
+    );
+  }
+
   if (!memoryStarted) {
     // Deliberately does not quote `cause`. See describeStartupFailure.
     throw new Error(

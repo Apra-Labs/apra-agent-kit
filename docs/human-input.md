@@ -297,10 +297,11 @@ irreversible there is nothing for the guardrail to stop.
 The orchestration **ends at the pause**. It does not wait.
 
 ```
-activity saves the checkpoint, returns { status: 'paused', batch, taskKey }
+activity saves the checkpoint, returns { status: 'paused', batch, checkpointKey }
   → orchestrator sets a small customStatus marker
-  → orchestration COMPLETES, output carries the state
-  → POST /jobs/:id/input starts a NEW orchestration seeded with it
+  → orchestration COMPLETES, output carries the key
+  → POST /jobs/:id/input reads the checkpoint back through that key
+  → and starts a NEW orchestration seeded with what it found
 ```
 
 `waitForExternalEvent` is the obvious alternative and is wrong twice over. The
@@ -338,13 +339,16 @@ tool runs **once** across the pause.
 
 ```bash
 npm run e2e:vm        # Express + in-process jobs — passing
-npm run e2e:durable   # Azure Functions + Durable against Azurite
+npm run e2e:durable   # Azure Functions + Durable against Azurite — NOT YET RUN
 ```
 
-`e2e:durable` is the leg that has never had a real task hub behind it: #63 and
-the checkpoint change were both unit-tested against mocks, which prove the
-orchestrator's *shape* but not that a pause survives a genuinely completed
-orchestration. Both legs need Docker.
+**Only the vm leg has actually been run.** `e2e:durable` needs Docker and has
+never had a real task hub behind it. #63 and the checkpoint change were both
+unit-tested against mocks, which prove the orchestrator's *shape* but not that
+a pause survives a genuinely completed orchestration and is picked up by the
+next one. Until that command has been run and passed, treat the Azure
+pause/resume path as unverified. The scenario is target-agnostic and the
+Azurite compose profile is ready, so it needs a machine with Docker, or CI.
 
 ## Storage and retention
 

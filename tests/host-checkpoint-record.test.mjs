@@ -9,7 +9,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-const { checkpointKey, CHECKPOINT_VERSION, createCheckpointRecord, validateCheckpoint, scrub } =
+const { checkpointKey, CHECKPOINT_VERSION, createCheckpointRecord, validateCheckpoint, scrub, stepIdempotencyKey } =
   await import('../host/checkpoint/record.mjs');
 
 // ---------------------------------------------------------------------------
@@ -140,4 +140,39 @@ test('record: absent and unreadable are distinguishable', () => {
   assert.equal(validateCheckpoint('nope').reason, 'unreadable');
   assert.equal(validateCheckpoint([]).reason, 'unreadable');
   assert.equal(validateCheckpoint({ version: CHECKPOINT_VERSION }).reason, 'unreadable');
+});
+
+// ---------------------------------------------------------------------------
+// The scrub has to cover every field that reaches the store
+//
+// `plan.steps` is scrubbed, and the idempotency key was built from the same
+// step's raw args one field over — so a credential removed from one place was
+// written verbatim to another, into a row that lives for the life of the run.
+// CONTRACT.md 4d: "no token, cookie, key or password survives a checkpoint
+// save." It has to mean every field, not the ones somebody remembered.
+// ---------------------------------------------------------------------------
+
+test('a credential in a step argument does not survive into the idempotency key', () => {
+  // Built the way the strategy builds it, then stored the way the strategy
+  // stores it — the whole path, not a hand-written key.
+  const step = { type: 'tool', tool: 'fetch', args: { apiKey: 'sk-live-SECRET', url: 'u' } };
+  const record = createCheckpointRecord({
+    taskKey: 'cp-job-1', jobId: 'job-1', task: { id: 'job-1', goal: 'g' },
+    plan: { steps: [step], cursor: 0 },
+    idempotencyKeys: [stepIdempotencyKey(step, 0)],
+  });
+  assert.equal(JSON.stringify(record).includes('sk-live-SECRET'), false, 'the secret is nowhere in the record');
+});
+
+test('the key still tells two steps apart, and survives key reordering', () => {
+  // Hashing must not let a step be skipped because an unrelated one ran...
+  const one = stepIdempotencyKey({ tool: 'fetch', args: { token: 'a', url: 'one' } }, 0);
+  const two = stepIdempotencyKey({ tool: 'fetch', args: { token: 'a', url: 'two' } }, 1);
+  assert.notEqual(one, two);
+
+  // ...nor may it change between runs, or a resume would redo every step.
+  assert.equal(
+    stepIdempotencyKey({ tool: 'f', args: { a: 1, b: 2 } }, 0),
+    stepIdempotencyKey({ tool: 'f', args: { b: 2, a: 1 } }, 0),
+  );
 });

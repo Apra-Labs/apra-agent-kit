@@ -12,6 +12,7 @@
 // `host/checkpoint/index.mjs`.
 
 import { assertSafeMemoryId } from '../memory/store/interface.mjs';
+import { createHash } from 'node:crypto';
 
 export const CHECKPOINT_VERSION = 1;
 
@@ -184,4 +185,27 @@ export function validateCheckpoint(raw) {
       plan: raw.plan ?? null,
     },
   };
+}
+
+/**
+ * The key that says "this step already ran".
+ *
+ * It must be stable across a resume, distinguish two steps that differ only in
+ * their arguments, and carry no credential. The arguments are scrubbed and
+ * then hashed rather than embedded: `plan.steps` was already scrubbed, and the
+ * old key format wrote the same arguments verbatim one field over, so a secret
+ * removed from one place was stored in another.
+ */
+export function stepIdempotencyKey(step, index) {
+  const args = scrub(step?.args ?? {});
+  const digest = createHash('sha256').update(stableStringify(args)).digest('hex').slice(0, 16);
+  return `${step?.tool ?? step?.type}-${digest}-${index}`;
+}
+
+/** Key order must not change the hash, or a resume would re-run every step. */
+function stableStringify(value) {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null';
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
+  const keys = Object.keys(value).sort();
+  return `{${keys.map(k => `${JSON.stringify(k)}:${stableStringify(value[k])}`).join(',')}}`;
 }
