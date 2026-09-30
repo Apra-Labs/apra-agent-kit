@@ -6,6 +6,7 @@ import { executeHostedTask, settleWhenAborted } from '../../host/tasks.mjs';
 import { settleFromRunResult, questionAskedEntry } from '../../host/jobs/record.mjs';
 import { createAskUser } from '../../host/human-input/ask.mjs';
 import { createCheckpoint } from '../../host/checkpoint/index.mjs';
+import { runAdvance } from './advance.mjs';
 import { checkpointKey } from '../../host/checkpoint/record.mjs';
 
 let factory = null;
@@ -173,4 +174,101 @@ export function createRunTaskActivity({ getClient, pollMs = 2000, getContext = g
       clearInterval(cancelPoll);
     }
   };
+}
+
+/**
+ * The run loop's step, for the Azure path.
+ *
+ * Reads the run's committed state from the checkpoint entity, advances it by
+ * one step, and returns a delta for the orchestrator to commit. It does not
+ * write the entity itself: an activity has only `signalEntity`, which is
+ * fire-and-forget, and a checkpoint nobody confirmed is one the run may lose.
+ *
+ * State is read rather than passed in the activity input because a run's
+ * observations can exceed a Durable payload.
+ */
+export function createAdvanceActivity({ getClient, pollMs = 2000, getContext = getHostContext }) {
+  return async function advanceTaskActivity(input, context) {
+    const { jobId, task, checkpointKey, callbackUrl, resume = null } = input;
+    const client = getClient(context);
+    const hostCtx = await getContext();
+    const controller = new AbortController();
+    const iso = () => new Date().toISOString();
+
+    const emit = (event) => {
+      if (hostCtx.jobs?.emitEvent) hostCtx.jobs.emitEvent(jobId, event);
+    };
+
+    // Cancellation is polled, not raised as an external event. An orchestrator
+    // that consumed events in a loop is what scheduled 125 activities for one
+    // request; see orchestrator.mjs.
+    const poll = setInterval(async () => {
+      try {
+        const st = await client.getStatus(jobId);
+        if (st?.customStatus?.cancelRequested && !controller.signal.aborted) controller.abort('cancelled');
+      } catch { /* a failed poll is not a reason to kill the run */ }
+    }, pollMs);
+    poll.unref?.();
+
+    const humanInput = hostCtx.humanInputConfig ?? null;
+    const askedHistory = [];
+    const askUser = humanInput?.enabled
+      ? createAskUser({
+          jobId,
+          config: humanInput,
+          answered: resume?.answered ?? [],
+          interruptions: resume?.resumeFrom?.interruptions ?? 0,
+          onQuestion: (batch) => {
+            askedHistory.push(questionAskedEntry(jobId, { batch }, new Date()));
+            emit({ type: 'input_required', jobId, at: iso(), batchId: batch.batchId, questions: batch.questions, askedBy: batch.askedBy, staleAfter: batch.staleAfter, expiresAt: batch.expiresAt });
+          },
+        })
+      : undefined;
+
+    try {
+      const state = await readCheckpointEntity(client, checkpointKey);
+
+      const out = await runAdvance({
+        jobId,
+        task,
+        state,
+        hostCtx,
+        signal: controller.signal,
+        onProgress: (progress) => emit({ type: 'progress', jobId, at: iso(), ...progress }),
+        askUser,
+      });
+
+      if (controller.signal.aborted && controller.signal.reason === 'cancelled') {
+        return { status: 'cancelled', done: true, delta: null, cleared: true, result: null, error: null };
+      }
+      return { ...out, ...(askedHistory.length ? { asked: askedHistory } : {}) };
+    } catch (err) {
+      context?.warn?.(`[advance] job ${jobId} failed: ${err?.message ?? err}`);
+      return {
+        status: 'failed', done: true, delta: null, cleared: false, result: null,
+        error: { code: 'advance_failed', message: String(err?.message ?? err) },
+      };
+    } finally {
+      clearInterval(poll);
+      if (callbackUrl) { /* the orchestrator settles; the webhook fires there */ }
+    }
+  };
+}
+
+/**
+ * The committed state, or null when there is none.
+ *
+ * Null is the ordinary first case — a run that has not taken a step yet — and
+ * also the fallback for a paused run created before entities existed, which
+ * resumes from history instead.
+ */
+async function readCheckpointEntity(client, checkpointKey) {
+  if (!checkpointKey || typeof client?.readEntityState !== 'function') return null;
+  try {
+    const df = await import('durable-functions');
+    const res = await client.readEntityState(new df.EntityId('checkpoint', checkpointKey));
+    return res?.entityExists ? (res.entityState ?? null) : null;
+  } catch {
+    return null;   // unreadable state rebuilds from history; it does not fail the run
+  }
 }

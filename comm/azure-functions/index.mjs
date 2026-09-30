@@ -1,18 +1,35 @@
 // comm/azure-functions/index.mjs
-// Registers the orchestrator and activity with Durable Functions.
+// Registers the orchestrator, the activities and the state entities.
 export async function registerDurableFunctions({ hostContextFactory, pollMs = 2000 }) {
   const df = await import('durable-functions');
   const { ORCHESTRATOR_NAME, ACTIVITY_NAME } = await import('../../host/jobs/durable.mjs');
-  const { runTaskOrchestrator } = await import('./orchestrator.mjs');
-  const { createRunTaskActivity, setHostContextFactory } = await import('./activity.mjs');
+  const { runTaskOrchestrator, ADVANCE_NAME } = await import('./orchestrator.mjs');
+  const { createRunTaskActivity, createAdvanceActivity, setHostContextFactory } = await import('./activity.mjs');
+  const { registerCheckpointEntity } = await import('./entities/checkpoint-entity.mjs');
+  const { registerConversationEntity } = await import('./entities/conversation-entity.mjs');
+  const { registerFactsEntity } = await import('./entities/facts-entity.mjs');
 
   setHostContextFactory(hostContextFactory);
   const clientInput = df.input.durableClient();
   df.app.orchestration(ORCHESTRATOR_NAME, runTaskOrchestrator);
+
+  // The run loop's step. `runTaskActivity` stays registered: it is what a
+  // whole-run dispatch still uses, and removing it would break any caller
+  // holding the old name.
+  df.app.activity(ADVANCE_NAME, {
+    extraInputs: [clientInput],
+    handler: createAdvanceActivity({ getClient: (context) => df.getClient(context), pollMs }),
+  });
   df.app.activity(ACTIVITY_NAME, {
     extraInputs: [clientInput],
     handler: createRunTaskActivity({ getClient: (context) => df.getClient(context), pollMs }),
   });
+
+  // State lives in the task hub: no Cosmos, no SQL for a default deployment.
+  registerCheckpointEntity(df);
+  registerConversationEntity(df);
+  registerFactsEntity(df);
+
   return { df, clientInput };
 }
 

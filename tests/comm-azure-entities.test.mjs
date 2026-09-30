@@ -188,3 +188,107 @@ test('facts: remove and get behave on an empty store', () => {
   assert.equal(factsOps.count(null, {}), 0);
   assert.equal(factsOps.remove(null, 'nope').removed, 0);
 });
+
+// ---------------------------------------------------------------------------
+// The orchestrator as the run loop
+//
+// Task 3. The orchestrator stops being a one-shot dispatcher: it calls
+// `advance` repeatedly and commits each delta with `callEntity` before going
+// round again. The determinism rules in the spec §5.3 apply to every line of
+// it — the previous multi-yield loop produced 125 activities from one request.
+// ---------------------------------------------------------------------------
+
+const { buildOrchestrator, ADVANCE_NAME } = await import('../comm/azure-functions/orchestrator.mjs');
+
+/**
+ * Drive the generator against a scripted sequence of activity/entity results.
+ * Records every task the orchestrator creates, in order, so a replay can be
+ * compared against the first pass.
+ */
+function drive(results) {
+  const created = [];
+  const ctx = {
+    df: {
+      instanceId: 'job-1',
+      currentUtcDateTime: new Date('2026-09-30T09:00:00Z'),
+      getInput: () => ({ task: { goal: 'g' } }),
+      setCustomStatus: () => {},
+      callActivity: (name, input) => { created.push(`activity:${name}`); return { __t: 'activity', name, input }; },
+      callEntity: (id, op) => { created.push(`entity:${id.name}:${op}`); return { __t: 'entity', op }; },
+      EntityId: function (name, key) { return { name, key }; },
+    },
+  };
+  const gen = buildOrchestrator()(ctx);
+  let step = gen.next();
+  let i = 0;
+  let guard = 0;
+  while (!step.done) {
+    // Two yields per step now — the activity, then the entity commit. Only the
+    // activity consumes a scripted result; an entity call answers nothing.
+    const send = step.value?.__t === 'activity' ? results[i++] : undefined;
+    step = gen.next(send);
+    guard += 1;
+    if (guard > 300) throw new Error('orchestrator did not terminate');
+  }
+  return { created, output: step.value };
+}
+
+const advanced = (over = {}) => ({ status: 'suspended', done: false, delta: { observations: [] }, cleared: false, ...over });
+const finished = (over = {}) => ({ status: 'completed', done: true, delta: null, cleared: true, result: 'r', ...over });
+
+test('orchestrator: it advances until the run reports done', () => {
+  const { created, output } = drive([advanced(), advanced(), finished()]);
+  const activities = created.filter(c => c.startsWith('activity:'));
+  assert.equal(activities.length, 3, 'one activity per step, no more');
+  assert.equal(output.status, 'completed');
+});
+
+test('orchestrator: each delta is committed before the next step runs', () => {
+  // The whole point of the fork. If the commit came after the next advance,
+  // a crash between them would lose the step that had already executed.
+  const { created } = drive([advanced(), finished()]);
+  assert.deepEqual(created, [
+    `activity:${ADVANCE_NAME}`,
+    'entity:checkpoint:save',
+    `activity:${ADVANCE_NAME}`,
+    'entity:checkpoint:clear',
+  ]);
+});
+
+test('orchestrator: a finished run clears the entity rather than leaving the row', () => {
+  const { created } = drive([finished()]);
+  assert.ok(created.includes('entity:checkpoint:clear'));
+  assert.equal(created.includes('entity:checkpoint:save'), false, 'nothing to save on a run that cleared');
+});
+
+test('orchestrator: a paused run stops without clearing', () => {
+  // The state is exactly what the answer will resume from. Clearing it here
+  // would make the question unanswerable.
+  const { created, output } = drive([
+    { status: 'paused', done: true, delta: { observations: [] }, cleared: false, batchId: 'inp-1', batch: { batchId: 'inp-1', questions: [] } },
+  ]);
+  assert.ok(created.includes('entity:checkpoint:save'));
+  assert.equal(created.includes('entity:checkpoint:clear'), false);
+  assert.equal(output.status, 'paused');
+  assert.equal(output.checkpointKey, 'cp-job-1');
+});
+
+test('orchestrator: the yield sequence is identical on replay', () => {
+  // The determinism property. A sequence that varies between replays is what
+  // drifted the SDK's event-ID counter and scheduled duplicate activities.
+  const script = [advanced(), advanced(), finished()];
+  const a = drive(script).created;
+  const b = drive(script).created;
+  const c = drive(script).created;
+  assert.deepEqual(a, b);
+  assert.deepEqual(b, c);
+});
+
+test('orchestrator: a runaway run is bounded rather than looping forever', () => {
+  // An unbounded loop in an orchestrator is how a replay bug becomes an
+  // unbounded bill. Never-done advances must terminate with a clear reason.
+  const never = Array.from({ length: 60 }, () => advanced());
+  const { output } = drive(never);
+  assert.equal(output.status, 'failed');
+  assert.match(output.error.message, /step/i);
+});
