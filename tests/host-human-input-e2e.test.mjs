@@ -70,7 +70,13 @@ function bookingTool() {
 
 const bookingHost = (tools, extra = {}) => startHost({
   port: 0,
-  env: { ...process.env, NODE_ENV: 'test' },
+  // SCHEDULER_ENABLED is upstream's own switch, and the only one that works
+  // here: startHost takes overrides for seven modules but not the scheduler,
+  // which it reads straight from host.config.mjs. That config ships a demo
+  // schedule for `city-briefing`, and these hosts supply their own registry,
+  // so the workflow is not registered and startup validation refuses it.
+  // Nothing here is testing scheduling.
+  env: { ...process.env, NODE_ENV: 'test', SCHEDULER_ENABLED: 'false' },
   registry: extendRegistry(tools),
   runLoop: { enabled: true, strategy: 'open-ended', maxNoActionTurns: 3 },
   guardrails: { enabled: true, defaultPolicy: 'allow' },
