@@ -26,6 +26,9 @@ export function createOpenEndedStrategy({
   askUser = undefined,
   resumeFrom = null,
   checkpoint = null,
+  // Azure only — see plan-execute for why. Open-ended has no plan, so a step
+  // is one LLM turn plus whatever tool it chose.
+  maxSteps = Infinity,
   strategy = 'open-ended',
 }) {
   const systemPrompt = buildSystemPrompt({ agentName, agentDescription, memories, conversation });
@@ -93,6 +96,7 @@ export function createOpenEndedStrategy({
   }
 
   async function* iterate() {
+    let stepsThisPass = 0;
     while (true) {
       const history = historyForPrompt();
       const prompt = buildActPrompt({ task, history, tools: toolCatalog, systemPrompt });
@@ -115,6 +119,11 @@ export function createOpenEndedStrategy({
         remember({ type: 'observation', tool, args, result });
         await saveCheckpoint();
         yield { type: 'observation', tool, args, ...result };
+        stepsThisPass += 1;
+        if (stepsThisPass >= maxSteps) {
+          yield { type: 'suspended' };
+          return;
+        }
         continue;
       }
 

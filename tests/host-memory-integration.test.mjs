@@ -662,3 +662,52 @@ test('a first run still recalls normally', async () => {
     await dispatcher.close();
   }
 });
+
+// ---------------------------------------------------------------------------
+// A suspended run is as unfinished as a paused one
+//
+// `executeHostedTask` treats anything that is not 'paused' as settled: it
+// records a conversation turn, runs the learner, and CLEARS the checkpoint.
+// For a run that merely suspended between steps, clearing is catastrophic —
+// the next advance would find nothing and start over, re-running whatever
+// irreversible work had already completed.
+// ---------------------------------------------------------------------------
+
+test('a suspended run keeps its checkpoint, and does not learn or record a turn', async () => {
+  let cleared = false;
+  let learned = false;
+  let turns = 0;
+
+  const dispatcher = await makeDispatcher();
+  try {
+    const out = await executeHostedTask({ id: 'task-susp', sessionId: 's1', goal: 'do two things' }, {
+      api: createMockFleetApi({
+        members: rosterNames(1),
+        promptResponses: [
+          '```tool_call\n{"tool": "weather", "args": {"city": "London"}}\n```',
+          '```tool_call\n{"tool": "weather", "args": {"city": "Paris"}}\n```',
+          '```done\n{"result": "d", "summary": "s"}\n```',
+        ],
+      }),
+      activeDispatcher: dispatcher,
+      toolRegistry: makeTools(),
+      runLoopConfig: { strategy: 'open-ended' },
+      budgetsConfig: null,
+      guardrailsMod: null,
+      maxSteps: 1,
+      memory: {
+        longTerm: { async recall() { return []; } },
+        learner: { async extract() { learned = true; return { newFacts: [], promotedIds: [] }; } },
+        conversationContext: { mode: 'store', async forPrompt() { return []; }, async recordTurn() { turns += 1; return {}; } },
+      },
+      checkpoint: { async clear() { cleared = true; } },
+    });
+
+    assert.equal(out.status, 'suspended', `got ${out.status}`);
+    assert.equal(cleared, false, 'the checkpoint survives — the next advance needs it');
+    assert.equal(learned, false, 'half a run teaches nothing');
+    assert.equal(turns, 0, 'and nobody answered yet');
+  } finally {
+    await dispatcher.close();
+  }
+});

@@ -16,6 +16,7 @@ export async function runTask(task, {
   maxReviewAttempts = 2,
   maxStepReviewAttempts = 2,
   maxNoActionTurns = 3,
+  maxSteps = Infinity,
   minReviewPolicy = 'irreversible',
   agentName,
   agentDescription,
@@ -44,7 +45,7 @@ export async function runTask(task, {
     memory: runMemory,
     memories,
     conversation,
-    askUser, resumeFrom, checkpoint,
+    askUser, resumeFrom, checkpoint, maxSteps,
   };
 
   const strat = strategy === 'plan-execute'
@@ -86,6 +87,16 @@ export async function runTask(task, {
               .replace(/([^\n])\*\*(Getting There|Morning|Afternoon|Evening|Stay|Meals|Day Cost Estimate)\*\*/g, '$1\n**$2**')
           : event.result;
         status = 'completed';
+        break;
+      }
+
+      // Not done, not failed: the run has more to do and handed control back so
+      // the caller can commit its checkpoint. `status` defaults to 'failed', so
+      // without this the orchestrator would settle a run that is merely
+      // part-way through and throw away everything it had already done.
+      if (event.type === 'suspended') {
+        status = 'suspended';
+        result = { cursor: event.cursor ?? null };
         break;
       }
 

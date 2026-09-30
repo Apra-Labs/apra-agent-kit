@@ -150,7 +150,7 @@ function extractTaskTags(task) {
 export async function executeHostedTask(task, {
   api, activeDispatcher, toolRegistry, runLoopConfig, routerConfig,
   budgetsConfig, guardrailsMod, jobs, signal, onProgress, memory, logger = console,
-  askUser, resumeFrom = null, checkpoint = null,
+  askUser, resumeFrom = null, checkpoint = null, maxSteps = Infinity,
 }) {
   const fullTask = { id: task.id ?? `t-${Date.now().toString(36)}`, ...task };
   // Accept a caller-supplied trace id so a run can be correlated with the
@@ -339,16 +339,20 @@ export async function executeHostedTask(task, {
         // given. Recalling a different set on resume changes behaviour with
         // no trace.
         checkpoint,
+        maxSteps,
         agentName: runLoopConfig.agentName,
         agentDescription: runLoopConfig.agentDescription,
       });
     }
 
-    // None of this applies to a run that merely paused. It has not
-    // finished: recording a conversation turn would log an answer nobody
-    // gave, learning from it would learn from half a run, and clearing the
-    // run-state checkpoint would throw away what the resume needs.
-    if (result.status !== 'paused') {
+    // None of this applies to a run that has not finished. `paused` is waiting
+    // on a person; `suspended` is an Azure run handing control back between
+    // steps so the orchestrator can commit. For either, recording a
+    // conversation turn would log an answer nobody gave, learning would learn
+    // from half a run, and clearing the checkpoint would throw away exactly
+    // what the next advance needs — it would start over and re-run whatever
+    // irreversible work had already completed.
+    if (result.status !== 'paused' && result.status !== 'suspended') {
       if (ccMode === 'store' && task.sessionId && cc) {
         try {
           const answerText = typeof result.result === 'string'

@@ -322,3 +322,122 @@ test('a resume keeps the idempotency keys, so completed work is not redone', asy
   for await (const _e of strategy.iterate()) { /* drain */ }
   assert.equal(ran, 0, 'the already-booked step was not booked again');
 });
+
+// ---------------------------------------------------------------------------
+// One step at a time
+//
+// On Azure the orchestrator has to commit the checkpoint between steps, and
+// `callEntity` is reachable only from the orchestrator generator. So the
+// activity can no longer run a whole task: it advances the run by one step and
+// returns, and the orchestrator commits before calling it again.
+//
+// `maxSteps` is unset on the VM path, where a run still executes end to end in
+// one go. See docs/specs/2026-09-30-azure-durable-entity-storage-spec.md §9.1.
+// ---------------------------------------------------------------------------
+
+test('plan-execute with maxSteps 1 runs one step and suspends', async () => {
+  const ran = [];
+  const tools = [
+    { name: 'book', description: 'book', reversible: false, timeout: 5000, run: async () => { ran.push('book'); return { ok: true }; } },
+    { name: 'email', description: 'email', reversible: true, timeout: 5000, run: async () => { ran.push('email'); return { ok: true }; } },
+  ];
+  const plan = '```plan\n' + JSON.stringify({
+    steps: [
+      { type: 'tool', tool: 'book', args: {}, reason: 'r', review: false },
+      { type: 'tool', tool: 'email', args: {}, reason: 'r', review: false },
+    ],
+  }) + '\n```';
+
+  const strategy = createPlanExecuteStrategy({
+    task: { id: 'job-one', goal: 'book and email' },
+    tools,
+    fleetApi: createMockFleetApi({ members: rosterNames(1), promptResponses: [plan, '```review\n{"approved":true}\n```', done()] }),
+    checkpoint: recordingCheckpoint(),
+    maxSteps: 1,
+  });
+
+  const events = [];
+  for await (const e of strategy.iterate()) events.push(e);
+
+  assert.deepEqual(ran, ['book'], 'exactly one step ran');
+  assert.equal(events.at(-1).type, 'suspended', 'and it says so rather than finishing');
+  assert.equal(events.some(e => e.type === 'done'), false, 'a suspended run is not a done run');
+});
+
+test('a suspended run reports where to pick up', async () => {
+  // The orchestrator needs the cursor to know the run is not finished; without
+  // it a suspend is indistinguishable from a crash.
+  const plan = '```plan\n' + JSON.stringify({
+    steps: [
+      { type: 'tool', tool: 'book', args: {}, reason: 'r', review: false },
+      { type: 'tool', tool: 'book', args: { n: 2 }, reason: 'r', review: false },
+    ],
+  }) + '\n```';
+  const strategy = createPlanExecuteStrategy({
+    task: { id: 'job-cursor', goal: 'book twice' },
+    tools: [{ name: 'book', description: 'book', reversible: false, timeout: 5000, run: async () => ({ ok: true }) }],
+    fleetApi: createMockFleetApi({ members: rosterNames(1), promptResponses: [plan, '```review\n{"approved":true}\n```', done()] }),
+    checkpoint: recordingCheckpoint(),
+    maxSteps: 1,
+  });
+  const events = [];
+  for await (const e of strategy.iterate()) events.push(e);
+  const suspended = events.at(-1);
+  assert.equal(suspended.type, 'suspended');
+  assert.equal(suspended.cursor, 1, 'the next step to run');
+});
+
+test('without maxSteps a run still executes end to end', async () => {
+  // The VM path must be untouched by any of this.
+  const ran = [];
+  const plan = '```plan\n' + JSON.stringify({
+    steps: [
+      { type: 'tool', tool: 'book', args: {}, reason: 'r', review: false },
+      { type: 'tool', tool: 'book', args: { n: 2 }, reason: 'r', review: false },
+    ],
+  }) + '\n```';
+  const strategy = createPlanExecuteStrategy({
+    task: { id: 'job-full', goal: 'book twice' },
+    tools: [{ name: 'book', description: 'book', reversible: false, timeout: 5000, run: async () => { ran.push('x'); return { ok: true }; } }],
+    fleetApi: createMockFleetApi({ members: rosterNames(1), promptResponses: [plan, '```review\n{"approved":true}\n```', done()] }),
+    checkpoint: recordingCheckpoint(),
+  });
+  const events = [];
+  for await (const e of strategy.iterate()) events.push(e);
+  assert.equal(ran.length, 2, 'both steps ran');
+  assert.equal(events.some(e => e.type === 'suspended'), false);
+  assert.equal(events.at(-1).type, 'done');
+});
+
+test('open-ended with maxSteps 1 runs one tool and suspends', async () => {
+  // Open-ended has no plan, so its "one step" is one LLM turn plus whatever
+  // tool that turn chose. Same contract: advance once, hand back control.
+  const ran = [];
+  const strategy = createOpenEndedStrategy({
+    task: { id: 'job-oe', goal: 'do two things' },
+    tools: [{ name: 'weather', description: 'w', reversible: true, timeout: 5000, run: async () => { ran.push('x'); return { ok: true }; } }],
+    fleetApi: createMockFleetApi({ members: rosterNames(1), promptResponses: [call('weather'), call('weather'), done()] }),
+    checkpoint: recordingCheckpoint(),
+    maxSteps: 1,
+  });
+  const events = [];
+  for await (const e of strategy.iterate()) events.push(e);
+
+  assert.equal(ran.length, 1, 'one tool call, not two');
+  assert.equal(events.at(-1).type, 'suspended');
+  assert.equal(events.some(e => e.type === 'done'), false);
+});
+
+test('open-ended without maxSteps still runs to done', async () => {
+  const ran = [];
+  const strategy = createOpenEndedStrategy({
+    task: { id: 'job-oe2', goal: 'do two things' },
+    tools: [{ name: 'weather', description: 'w', reversible: true, timeout: 5000, run: async () => { ran.push('x'); return { ok: true }; } }],
+    fleetApi: createMockFleetApi({ members: rosterNames(1), promptResponses: [call('weather'), call('weather'), done()] }),
+    checkpoint: recordingCheckpoint(),
+  });
+  const events = [];
+  for await (const e of strategy.iterate()) events.push(e);
+  assert.equal(ran.length, 2);
+  assert.equal(events.at(-1).type, 'done');
+});

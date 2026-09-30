@@ -40,6 +40,11 @@ export function createPlanExecuteStrategy({
   askUser = undefined,
   resumeFrom = null,
   checkpoint = null,
+  // Azure only. The orchestrator must commit the checkpoint between steps, and
+  // `callEntity` is reachable only from the orchestrator generator — so the
+  // activity advances the run by this many steps and then suspends. Unset on
+  // the VM path, where a run executes end to end in one go.
+  maxSteps = Infinity,
 }) {
   const systemPrompt = buildSystemPrompt({ agentName, agentDescription, memories, conversation });
   const toolCatalog = formatTools(tools);
@@ -96,6 +101,7 @@ export function createPlanExecuteStrategy({
   }
 
   async function* iterate() {
+    let stepsThisPass = 0;
     let replanCount = 0;
     let currentPlan = null;
     let idempotencyKeys = new Set();
@@ -418,6 +424,16 @@ export function createPlanExecuteStrategy({
         }
 
         await saveCheckpoint(i, idempotencyKey);
+
+        stepsThisPass += 1;
+        if (stepsThisPass >= maxSteps) {
+          // Not done, not failed: the run has more to do and is handing control
+          // back so the caller can commit. `cursor` is the next step to run —
+          // without it a suspend is indistinguishable from a crash.
+          progressCursor = i + 1;
+          yield { type: 'suspended', cursor: i + 1, plan: currentPlan };
+          return;
+        }
       }
 
       if (restartExecution) {
