@@ -34,12 +34,17 @@ const aBatch = (over = {}) => ({
 });
 
 // The output is a pointer now: the state lives in the memory store.
+// What `advance` returns for a run that parked. `done` ends the loop; a paused
+// run keeps its checkpoint, so it is not cleared.
 const pausedOutput = (over = {}) => ({
   status: 'paused',
+  done: true,
+  cleared: false,
+  delta: null,
   batchId: aBatch().batchId,
   batch: aBatch(),
   checkpointKey: 'cp-job-1',
-  history: [{ type: 'question_asked', jobId: 'job-1', batch: aBatch() }],
+  asked: [{ type: 'question_asked', jobId: 'job-1', batch: aBatch() }],
   ...over,
 });
 
@@ -57,13 +62,20 @@ function runOrchestrator(activityOutput) {
       getInput: () => ({ task: { goal: 'g' } }),
       setCustomStatus: (s) => customStatuses.push(structuredClone(s)),
       callActivity: (name, input) => { scheduled.push({ name, input }); return { __activity: true }; },
+      // The orchestrator commits each step's delta before the next one runs.
+      callEntity: () => ({ __entity: true }),
+      EntityId: function EntityId(name, key) { return { name, key }; },
     },
   };
 
   const gen = buildOrchestrator()(context);
   let step = gen.next();
-  assert.equal(step.done, false, 'the orchestrator must yield exactly once');
-  step = gen.next(activityOutput);
+  assert.equal(step.done, false, 'the orchestrator yields before it does anything');
+  let guard = 0;
+  while (!step.done) {
+    step = gen.next(step.value?.__activity ? activityOutput : undefined);
+    if ((guard += 1) > 200) throw new Error('orchestrator did not terminate');
+  }
 
   return { done: step.done, output: step.value, customStatuses, scheduled, gen };
 }
@@ -75,14 +87,21 @@ test('orchestrator: a pause completes the orchestration rather than waiting', as
   assert.equal(scheduled.length, 1, 'exactly one activity was ever scheduled');
 });
 
-test('orchestrator: the generator still yields exactly once - the replay bug cannot return', async () => {
+test('orchestrator: one activity per step, and a replay schedules no more', async () => {
   // The old for(;;) loop consumed waitForExternalEvent('progress'), and each
   // replay shifted the SDK's event-ID counter so callActivity scheduled a NEW
   // activity every replay. N progress events -> N+1 activities -> pool
-  // exhaustion. A second yield anywhere here reintroduces it.
-  const { gen, scheduled } = runOrchestrator(pausedOutput());
-  assert.equal(scheduled.length, 1);
-  assert.equal(gen.next().done, true, 'nothing further is yielded after the return');
+  // exhaustion.
+  //
+  // The orchestrator drives the run loop now, so "exactly one yield" is no
+  // longer the property. The property that matters is unchanged: what it
+  // schedules depends only on history, so a replay schedules exactly the same.
+  const first = runOrchestrator(pausedOutput());
+  assert.equal(first.scheduled.length, 1, 'a run that pauses on its first step runs one activity');
+  assert.equal(first.gen.next().done, true, 'nothing further is yielded after the return');
+
+  const second = runOrchestrator(pausedOutput());
+  assert.deepEqual(second.scheduled.map(x => x.name), first.scheduled.map(x => x.name));
 });
 
 test('orchestrator: the output carries a pointer to where the state is', async () => {
@@ -125,7 +144,12 @@ test('orchestrator: an oversized paused output still fails loudly', async () => 
   // The state moved to the memory store, so this is now an assertion rather
   // than a path: if it fires, something is writing state into the output
   // again, and failing beats truncating a pointer into nonsense.
-  const huge = pausedOutput({ filler: 'x'.repeat(20_000) });
+  // The paused output is constructed from named fields now, so a stray one
+  // cannot bloat it. If state comes back it arrives inside the batch, which is
+  // the field that does travel — so that is where the guard has to still bite.
+  const huge = pausedOutput({
+    batch: { ...aBatch(), questions: [{ fieldId: 'proceed', kind: 'approval', prompt: 'x'.repeat(20_000) }] },
+  });
   const { output } = runOrchestrator(huge);
 
   assert.equal(output.status, 'failed');
@@ -134,7 +158,7 @@ test('orchestrator: an oversized paused output still fails loudly', async () => 
 });
 
 test('orchestrator: a normal settle is unchanged', async () => {
-  const { output, customStatuses } = runOrchestrator({ status: 'completed', result: 'done' });
+  const { output, customStatuses } = runOrchestrator({ status: 'completed', done: true, cleared: true, delta: null, result: 'done' });
   assert.equal(output.status, 'completed');
   assert.equal(customStatuses.at(-1).status, 'completed');
   assert.ok(customStatuses.at(-1).finishedAt);

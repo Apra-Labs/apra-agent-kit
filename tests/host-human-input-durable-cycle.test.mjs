@@ -26,7 +26,8 @@ import { WorkerDispatcher } from '../pool/worker-dispatcher.mjs';
 import { WorkerPool } from '../pool/worker-pool.mjs';
 import { createMockFleetApi, rosterNames } from './helpers/mock-fleet.mjs';
 
-const { createRunTaskActivity, setHostContextFactory } = await import('../comm/azure-functions/activity.mjs');
+const { createRunTaskActivity, createAdvanceActivity, setHostContextFactory } = await import('../comm/azure-functions/activity.mjs');
+const { checkpointOps } = await import('../comm/azure-functions/entities/checkpoint-entity.mjs');
 const { buildOrchestrator } = await import('../comm/azure-functions/orchestrator.mjs');
 const { createDurableJobs, ORCHESTRATOR_NAME } = await import('../host/jobs/durable.mjs');
 const { isLivePausedInstance } = await import('../comm/azure-functions/index.mjs');
@@ -134,9 +135,23 @@ async function harness() {
     humanInputConfig: { enabled: true, maxInterruptions: 10 },
   }));
 
-  const activity = createRunTaskActivity({ getClient: () => hub, pollMs: 100_000 });
+  // The run loop's step. `readEntityState` is answered from the same map the
+  // orchestrator's entity commits write to, which is what the task hub does.
+  hub.entities = new Map();
+  hub.readEntityState = async (id) => {
+    const state = hub.entities.get(id.key ?? id.name);
+    return { entityExists: state !== undefined, entityState: state ?? null };
+  };
+  const activity = createAdvanceActivity({ getClient: () => hub, pollMs: 100_000 });
 
-  /** Run one orchestration to completion, the way the Durable host would. */
+  /**
+   * Run one orchestration to completion, the way the Durable host would.
+   *
+   * The orchestrator is the run loop now: it yields an activity, then an entity
+   * commit, and goes round until the activity reports `done`. `entities` stands
+   * in for the task hub's entity storage — the same state the real
+   * `readEntityState` would hand back on the next invocation.
+   */
   async function runOrchestration(instanceId) {
     const inst = hub.instances.get(instanceId);
     inst.runtimeStatus = 'Running';
@@ -146,15 +161,31 @@ async function harness() {
         currentUtcDateTime: new Date(),
         getInput: () => inst.input,
         setCustomStatus: (s) => { inst.customStatus = structuredClone(s); },
-        callActivity: (_name, input) => ({ __input: input }),
+        callActivity: (_name, input) => ({ __t: 'activity', input }),
+        callEntity: (id, op, input) => ({ __t: 'entity', id, op, input }),
+        EntityId: function EntityId(name, key) { return { name, key }; },
       },
     });
-    const first = gen.next();
-    const output = await activity(first.value.__input, { invocationId: instanceId });
-    const final = gen.next(output);
-    inst.output = final.value;
+
+    let step = gen.next();
+    let guard = 0;
+    while (!step.done) {
+      const y = step.value;
+      if (y?.__t === 'activity') {
+        step = gen.next(await activity(y.input, { invocationId: instanceId }));
+      } else if (y?.__t === 'entity') {
+        if (y.op === 'clear') hub.entities.delete(y.id.key);
+        else if (y.op === 'save') hub.entities.set(y.id.key, checkpointOps.save(hub.entities.get(y.id.key) ?? null, y.input));
+        step = gen.next();
+      } else {
+        step = gen.next();
+      }
+      if ((guard += 1) > 200) throw new Error('orchestration did not terminate');
+    }
+
+    inst.output = step.value;
     inst.runtimeStatus = 'Completed';
-    return final.value;
+    return step.value;
   }
 
   const jobs = createDurableJobs({

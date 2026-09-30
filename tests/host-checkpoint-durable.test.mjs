@@ -23,6 +23,13 @@ const aBatch = () => ({
   expiresAt: '2026-10-07T09:00:00.000Z',
 });
 
+/**
+ * Drive the orchestrator to completion against one activity outcome.
+ *
+ * The orchestrator is the run loop now: it yields an activity, then an entity
+ * commit, and goes round until the activity reports `done`. Only the activity
+ * consumes the scripted outcome.
+ */
 function runOrchestrator(activityOutput) {
   const customStatuses = [];
   const ctx = {
@@ -31,17 +38,28 @@ function runOrchestrator(activityOutput) {
       currentUtcDateTime: new Date('2026-09-30T09:00:00Z'),
       getInput: () => ({ task: { goal: 'g' } }),
       setCustomStatus: (s) => customStatuses.push(structuredClone(s)),
-      callActivity: () => ({ __activity: true }),
+      callActivity: () => ({ __t: 'activity' }),
+      callEntity: () => ({ __t: 'entity' }),
+      EntityId: function EntityId(name, key) { return { name, key }; },
     },
   };
   const gen = buildOrchestrator()(ctx);
-  gen.next();
-  const step = gen.next(activityOutput);
+  let step = gen.next();
+  let guard = 0;
+  while (!step.done) {
+    step = gen.next(step.value?.__t === 'activity' ? activityOutput : undefined);
+    if ((guard += 1) > 200) throw new Error('orchestrator did not terminate');
+  }
   return { output: step.value, customStatuses, done: step.done };
 }
 
+// `done` ends the loop; a paused run keeps its checkpoint, so `cleared` is
+// false and the delta is committed before the orchestration completes.
 const paused = (over = {}) => ({
   status: 'paused',
+  done: true,
+  cleared: false,
+  delta: null,
   batchId: aBatch().batchId,
   batch: aBatch(),
   checkpointKey: 'cp-job-1',
@@ -71,7 +89,12 @@ test('a pause can no longer be too large to fit', () => {
 test('the guard survives as an assertion, in case state comes back', () => {
   // If this ever fires, something has started putting state in the output
   // again — which is worth failing loudly rather than truncating silently.
-  const { output } = runOrchestrator(paused({ filler: 'x'.repeat(20_000) }));
+  // The paused output is constructed from named fields now, so a stray one
+  // cannot bloat it. State coming back would arrive inside the batch, which is
+  // the field that does travel — so that is where the guard has to still work.
+  const { output } = runOrchestrator(paused({
+    batch: { ...aBatch(), questions: [{ fieldId: 'f', kind: 'text', prompt: 'x'.repeat(20_000) }] },
+  }));
   assert.equal(output.status, 'failed');
   assert.equal(output.error.code, 'pause_too_large');
   assert.match(output.error.message, /pointer, not state/);
@@ -86,7 +109,7 @@ test('customStatus still carries the small marker', () => {
 });
 
 test('a normal settle is unchanged', () => {
-  const { output } = runOrchestrator({ status: 'completed', result: 'done' });
+  const { output } = runOrchestrator({ status: 'completed', done: true, cleared: true, delta: null, result: 'done' });
   assert.equal(output.status, 'completed');
   assert.equal(output.result, 'done');
 });
