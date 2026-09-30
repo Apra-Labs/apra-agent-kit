@@ -591,3 +591,74 @@ test('a run with no job store still learns, with no answers', async () => {
     await dispatcher.close();
   }
 });
+
+// ---------------------------------------------------------------------------
+// A resumed run reproduces the prompt the original run had
+//
+// The checkpoint captures `recalledFacts` and `conversation` so a resume can
+// rebuild the same prompt. Nothing read them back: tasks.mjs re-recalled from
+// long-term memory and rebuilt the conversation fresh, so the resumed run
+// could be reasoning from different facts than the run the person answered —
+// decay, a new fact, or an evicted turn is enough to change them.
+// ---------------------------------------------------------------------------
+
+test('a resume reuses the checkpoint facts rather than recalling again', async () => {
+  let recalls = 0;
+  const captured = [];
+  const api = doneFleet();
+  const origPrompt = api.executePrompt.bind(api);
+  api.executePrompt = async (args) => { captured.push(args.prompt); return origPrompt(args); };
+
+  const dispatcher = await makeDispatcher();
+  try {
+    const out = await executeHostedTask({ id: 'task-reuse', goal: 'Weather in London' }, {
+      api,
+      activeDispatcher: dispatcher,
+      toolRegistry: makeTools(),
+      runLoopConfig: { strategy: 'open-ended' },
+      budgetsConfig: null,
+      guardrailsMod: null,
+      memory: {
+        longTerm: {
+          async recall() { recalls += 1; return [{ id: 'mem-new', kind: 'domain', text: 'A FACT FROM NOW' }]; },
+        },
+      },
+      checkpoint: { async clear() {} },
+      resumeFrom: {
+        observations: [],
+        recalledFacts: [{ id: 'mem-then', kind: 'domain', text: 'THE FACT IT WAS GIVEN' }],
+        conversation: [{ role: 'turn', goal: 'earlier question', answer: 'earlier answer' }],
+      },
+    });
+
+    assert.equal(out.status, 'completed');
+    assert.equal(recalls, 0, 'the resumed run did not re-recall');
+    assert.ok(captured[0].includes('THE FACT IT WAS GIVEN'), 'it used the facts it was given');
+    assert.equal(captured[0].includes('A FACT FROM NOW'), false, 'and not what memory holds today');
+  } finally {
+    await dispatcher.close();
+  }
+});
+
+test('a first run still recalls normally', async () => {
+  // The reuse must be scoped to a resume. A fresh run has no checkpoint to
+  // reproduce and must see what memory holds now.
+  let recalls = 0;
+  const dispatcher = await makeDispatcher();
+  try {
+    await executeHostedTask({ id: 'task-fresh', goal: 'Weather in London' }, {
+      api: doneFleet(),
+      activeDispatcher: dispatcher,
+      toolRegistry: makeTools(),
+      runLoopConfig: { strategy: 'open-ended' },
+      budgetsConfig: null,
+      guardrailsMod: null,
+      memory: { longTerm: { async recall() { recalls += 1; return []; } } },
+      checkpoint: { async clear() {} },
+      resumeFrom: null,
+    });
+    assert.equal(recalls, 1);
+  } finally {
+    await dispatcher.close();
+  }
+});

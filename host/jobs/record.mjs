@@ -126,8 +126,11 @@ export const HISTORY_TYPES = [
 
 const entry = (type, jobId, payload, now) => ({ type, jobId, at: iso(now), ...payload });
 
-export const runStartedEntry = (jobId, { task, traceId }, now = new Date()) =>
-  entry('run_started', jobId, { task, traceId }, now);
+// `identity` is who the run is for. A rebuild from history is the fallback when
+// the checkpoint is gone, and without this the fallback would turn a run with an
+// owner into one anybody may answer.
+export const runStartedEntry = (jobId, { task, traceId, identity = null }, now = new Date()) =>
+  entry('run_started', jobId, { task, traceId, identity }, now);
 
 // `replanOf` names the batch whose answer caused the revision, so a plan change
 // is always traceable to the question that prompted it.

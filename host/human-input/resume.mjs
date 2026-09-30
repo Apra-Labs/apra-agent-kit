@@ -124,6 +124,10 @@ export function planResume(record, submission, {
       budget: state.budget,
       interruptions: state.interruptions,
       identity: state.identity,
+      // So the resumed run builds the prompt the original was given, rather
+      // than whatever long-term memory holds by the time somebody answers.
+      recalledFacts: state.recalledFacts ?? null,
+      conversation: state.conversation ?? null,
       answered,
     },
     snapshotSource: source,

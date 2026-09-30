@@ -302,3 +302,70 @@ test('resumeState: nothing passed at all is treated as absent', () => {
   assert.equal(out.source, 'history');
   assert.equal(out.reason, 'absent');
 });
+
+// ---------------------------------------------------------------------------
+// "History is the truth" has to be true of real history
+//
+// rebuildFromHistory is the sole fallback when a checkpoint is absent,
+// unreadable or version-refused, and on Azure it was for a while the only
+// path. It reads run_started, planned, step_completed and step_failed — and
+// nothing in the kit ever wrote any of them. Only question/answer entries were
+// appended, so in production the rebuild always returned `plan: null` and no
+// observations: the run silently re-did everything.
+//
+// The contract held only for synthetic history written by tests. This drives a
+// real job and rebuilds from what it actually recorded.
+// ---------------------------------------------------------------------------
+
+const { createInProcessJobs } = await import('../host/jobs/in-process.mjs');
+const { createMemoryStore: createJobStore } = await import('../host/jobs/store/memory.mjs');
+
+async function runAndCollectHistory({ identity = null } = {}) {
+  const store = createJobStore();
+  const jobs = createInProcessJobs({
+    store,
+    runJob: async (task, { onProgress }) => {
+      // Exactly what richEvent hands the jobs layer for a two-step plan.
+      await onProgress({ iteration: 1, kind: 'plan', message: 'planned',
+        plan: { steps: [{ type: 'tool', tool: 'book' }, { type: 'tool', tool: 'email' }] } });
+      await onProgress({ iteration: 2, kind: 'step_started', message: 'starting: book',
+        stepIndex: 0, step: { type: 'tool', tool: 'book' }, args: { city: 'Kyoto' } });
+      await onProgress({ iteration: 3, kind: 'step_completed', message: 'completed: book',
+        stepIndex: 0, step: { type: 'tool', tool: 'book' }, result: { ok: true, result: 'FL-1' }, reversible: false });
+      return { status: 'completed', result: 'done', history: [], budget: null };
+    },
+    notifier: null,
+    config: { maxQueueSize: 10, concurrency: 1, leaseTimeoutMs: 60_000, retentionMs: 86_400_000, drainMs: 500, capacity: 2 },
+    logger: { warn() {}, info() {} },
+  });
+  await jobs.start();
+  const { jobId } = await jobs.submit({ goal: 'Book a trip' }, { metadata: identity ? { identity } : {} });
+  for (let i = 0; i < 200; i++) {
+    const rec = await jobs.get(jobId);
+    if (rec?.status === 'completed') break;
+    await new Promise(r => setTimeout(r, 10));
+  }
+  const events = await jobs.events(jobId);
+  await jobs.stop({ drainMs: 10 });
+  return { jobId, events };
+}
+
+test('a real run records the history a rebuild needs', async () => {
+  const { jobId, events } = await runAndCollectHistory();
+  const types = events.map(e => e.type);
+  assert.ok(types.includes('planned'), `no planned entry in ${[...new Set(types)]}`);
+  assert.ok(types.includes('step_completed'), 'no step_completed entry');
+
+  const state = rebuildFromHistory(events, { taskKey: `cp-${jobId}`, jobId });
+  assert.equal(state.plan.steps.length, 2, 'the plan came back');
+  assert.equal(state.plan.cursor, 1, 'the cursor sits after the completed step');
+  assert.equal(state.observations.length, 1, 'the completed step came back');
+});
+
+test('a rebuild can still say who the run was for', async () => {
+  // The second line behind the authorization check: if the checkpoint is lost,
+  // a rebuild must not turn a run with an owner into a run anyone may answer.
+  const { jobId, events } = await runAndCollectHistory({ identity: { personId: 'alice' } });
+  const state = rebuildFromHistory(events, { taskKey: `cp-${jobId}`, jobId });
+  assert.deepEqual(state.identity, { personId: 'alice' });
+});

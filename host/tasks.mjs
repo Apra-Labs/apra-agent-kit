@@ -242,8 +242,15 @@ export async function executeHostedTask(task, {
     const workspace = { workerId: lease.workerId, doer: lease.doer, reviewer: lease.reviewer };
     const pooledApi = createPooledFleetApi(api, lease);
 
-    let memories = [];
-    if (memory?.longTerm) {
+    // A resumed run reproduces the prompt the original had. Recalling again
+    // would reason from whatever memory holds *now* — decay, a newly learnt
+    // fact or an evicted turn is enough to make the resumed run disagree with
+    // the one the person actually answered.
+    const resumedFacts = Array.isArray(resumeFrom?.recalledFacts) ? resumeFrom.recalledFacts : null;
+    const resumedConversation = Array.isArray(resumeFrom?.conversation) ? resumeFrom.conversation : null;
+
+    let memories = resumedFacts ?? [];
+    if (memory?.longTerm && !resumedFacts) {
       try {
         const tags = extractTaskTags(task);
         logger.info?.(`memory recall tags=${JSON.stringify(tags)}`);
@@ -265,9 +272,9 @@ export async function executeHostedTask(task, {
       }
     }
 
-    let conversationHistory = [];
+    let conversationHistory = resumedConversation ?? [];
     const cc = memory?.conversationContext;
-    const ccMode = cc?.mode ?? null;
+    const ccMode = resumedConversation ? null : (cc?.mode ?? null);
 
     if (ccMode === 'store' && task.sessionId) {
       try {

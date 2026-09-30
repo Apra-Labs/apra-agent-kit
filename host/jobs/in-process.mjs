@@ -3,6 +3,7 @@ import {
   TERMINAL_STATUSES, createRecord, queuedEvent, startedEvent, progressEvent, settledEvent, settleFromRunResult,
   inputRequiredEvent, inputResolvedEvent,
   questionAskedEntry, answerReceivedEntry, questionExpiredEntry,
+  runStartedEntry, plannedEntry, stepStartedEntry, stepCompletedEntry, stepFailedEntry,
 } from './record.mjs';
 import { checkpointKey } from '../checkpoint/record.mjs';
 import { resumeState } from '../checkpoint/rebuild.mjs';
@@ -41,6 +42,35 @@ export function createInProcessJobs({
   let purgeTimer = null;
 
   const iso = () => now().toISOString();
+
+  /**
+   * Translate a progress event into the append-only history a rebuild reads.
+   *
+   * Best-effort: losing a history entry degrades the fallback, and must not
+   * take down a run that is otherwise fine.
+   */
+  async function recordHistory(jobId, detail) {
+    try {
+      const { kind, stepIndex, step, result, error, plan, reversible } = detail ?? {};
+      if (kind === 'plan' || kind === 'replan') {
+        if (Array.isArray(plan?.steps)) {
+          await store.appendEvent(jobId, plannedEntry(jobId, { plan: plan.steps }, now()));
+        }
+      } else if (kind === 'step_started') {
+        await store.appendEvent(jobId, stepStartedEntry(jobId, {
+          stepIndex, stepType: step?.type ?? null, tool: step?.tool ?? null, args: step?.args ?? detail?.args ?? null,
+        }, now()));
+      } else if (kind === 'step_completed') {
+        await store.appendEvent(jobId, stepCompletedEntry(jobId, {
+          stepIndex, result, reversible: reversible ?? null,
+        }, now()));
+      } else if (kind === 'step_failed') {
+        await store.appendEvent(jobId, stepFailedEntry(jobId, { stepIndex, error }, now()));
+      }
+    } catch (err) {
+      logger.warn(`[jobs] job ${jobId} could not record history: ${err?.message ?? err}`);
+    }
+  }
 
   async function publish(jobId, event) {
     const seq = await store.appendEvent(jobId, event);
@@ -98,6 +128,8 @@ export function createInProcessJobs({
         budget: state.budget,
         interruptions: state.interruptions,
         identity: state.identity,
+        recalledFacts: state.recalledFacts ?? null,
+        conversation: state.conversation ?? null,
       };
     }
 
@@ -193,9 +225,25 @@ export function createInProcessJobs({
         if (entry.controller.signal.aborted) return;
         await store.update(jobId, { progress: { iteration, message, at: iso() } });
         await publish(jobId, progressEvent(jobId, iteration, { message, ...detail }, now()));
+        // ...and the same event as durable history, so a rebuild has something
+        // to fold. Only question/answer entries were ever written before, which
+        // left `rebuildFromHistory` able to return a plan of null and no
+        // observations however much work the run had done.
+        await recordHistory(jobId, detail);
       };
 
       const task = { id: jobId, ...record.task };
+      // The first entry a rebuild folds: what the run is, and who it is for.
+      try {
+        await store.appendEvent(jobId, runStartedEntry(jobId, {
+          task: record.task ?? null,
+          traceId: record.traceId ?? null,
+          identity: record.metadata?.identity ?? null,
+        }, now()));
+      } catch (err) {
+        logger.warn(`[jobs] job ${jobId} could not record run_started: ${err?.message ?? err}`);
+      }
+
       const { resumeFrom, askUser } = humanInputEnabled
         ? await resumeContextFor(jobId, record)
         : { resumeFrom: null, askUser: undefined };
