@@ -26,6 +26,19 @@ are stated preferences, not inferred ones):
 Observation history:
 {{HISTORY}}`;
 
+/**
+ * An answer as a person would read it.
+ *
+ * A future question kind can hand back any shape, and string interpolation
+ * turns an object into "[object Object]" — the model learns nothing from it
+ * and the prompt still looks well-formed, so nobody finds out.
+ */
+function renderAnswer(answer) {
+  if (Array.isArray(answer)) return answer.join(', ');
+  if (answer !== null && typeof answer === 'object') return JSON.stringify(answer);
+  return String(answer);
+}
+
 function buildPrompt(task, history, recalledFacts, answers) {
   const taskText = typeof task === 'string' ? task : (task?.goal ?? JSON.stringify(task));
   const recalledText = (recalledFacts ?? []).map(f => `[${f.id}] (${f.kind}) ${f.text}`).join('\n') || '(none)';
@@ -40,7 +53,7 @@ function buildPrompt(task, history, recalledFacts, answers) {
   return LEARNER_PROMPT
     .replace('{{TASK}}', taskText)
     .replace('{{RECALLED}}', recalledText)
-    .replace('{{ANSWERS}}', (answers ?? []).map(a => `- asked "${a.prompt}" → ${Array.isArray(a.answer) ? a.answer.join(', ') : a.answer}`).join('\n') || '(none)')
+    .replace('{{ANSWERS}}', (answers ?? []).map(a => `- asked "${a.prompt}" → ${renderAnswer(a.answer)}`).join('\n') || '(none)')
     .replace('{{HISTORY}}', historyText);
 }
 

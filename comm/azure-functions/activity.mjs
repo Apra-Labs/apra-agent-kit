@@ -128,7 +128,14 @@ export function createRunTaskActivity({ getClient, pollMs = 2000, getContext = g
           };
         }
 
-        return { status: 'paused', batchId: run.batchId, batch: run.batch, checkpointKey: taskKey, routedTo: run.routedTo ?? null };
+        // `asked` is the audit record of what this segment put to a person.
+        // Without it nobody can later say what they were agreeing to, and
+        // learnableAnswers has no question to pair an answer with.
+        return {
+          status: 'paused', batchId: run.batchId, batch: run.batch,
+          checkpointKey: taskKey, routedTo: run.routedTo ?? null,
+          asked: askedHistory,
+        };
       }
 
       const settled = settleFromRunResult(run);

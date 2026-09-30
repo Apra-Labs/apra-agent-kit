@@ -195,3 +195,13 @@ test('a run with no answers says so rather than leaving a gap', async () => {
   assert.match(prompt, /stated preferences, not inferred ones\):\n\(none\)/);
   assert.ok(!prompt.includes('{{ANSWERS}}'));
 });
+
+test('an unexpected answer shape reaches the model as text, not [object Object]', async () => {
+  // learnableAnswers unwraps `{other: '...'}`, but a question kind added later
+  // could hand back any object. Rendering it with string interpolation put
+  // "[object Object]" in the prompt — the model learns nothing and nobody
+  // notices, because the prompt still looks well-formed.
+  const prompt = await promptFor([{ prompt: 'When?', answer: { from: '2026-10-01', to: '2026-10-07' } }]);
+  assert.equal(prompt.includes('[object Object]'), false);
+  assert.match(prompt, /2026-10-01/);
+});

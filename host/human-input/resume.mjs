@@ -130,8 +130,10 @@ export function planResume(record, submission, {
       conversation: state.conversation ?? null,
       answered,
     },
-    snapshotSource: source,
-    snapshotReason: reason ?? null,
+    // The snapshot retired into host/checkpoint/; these carry its old name only
+    // because nothing renamed them. Nothing in host/ or comm/ reads either.
+    checkpointSource: source,
+    checkpointReason: reason ?? null,
   };
 }
 

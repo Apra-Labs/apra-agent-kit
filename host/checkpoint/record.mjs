@@ -35,15 +35,24 @@ export function checkpointKey(task) {
 
 // Anything that looks like proof of identity rather than identity itself.
 // Matched case-insensitively against key names at every depth.
-const CREDENTIAL_KEYS = [
-  'token', 'accesstoken', 'refreshtoken', 'idtoken', 'bearer',
-  'authorization', 'auth', 'apikey', 'api_key', 'secret',
-  'password', 'passwd', 'credential', 'credentials', 'cookie', 'sessionid',
+//
+// These are *roots*, matched as substrings of the normalised key, because real
+// key names are compounds: `client_secret`, `x-api-key`, `set-cookie`,
+// `refresh_token_value`. Exact matching caught `secret` and let `client_secret`
+// straight through, which is the shape every one of these arrives in.
+//
+// The bias is deliberate. A false positive scrubs one field out of a
+// disposable cache — history is the truth and can rebuild it. A false negative
+// leaves a live credential in a store for the length of the run. Over-scrub.
+const CREDENTIAL_ROOTS = [
+  'token', 'bearer', 'authorization', 'auth', 'apikey', 'secret',
+  'password', 'passwd', 'credential', 'cookie', 'session',
+  'privatekey', 'signature', 'sas', 'connectionstring',
 ];
 
 const isCredentialKey = (key) => {
-  const k = String(key).toLowerCase().replace(/[-_]/g, '');
-  return CREDENTIAL_KEYS.some(c => k === c.replace(/[-_]/g, ''));
+  const k = String(key).toLowerCase().replace(/[-_\s]/g, '');
+  return CREDENTIAL_ROOTS.some(root => k.includes(root));
 };
 
 /**

@@ -209,3 +209,53 @@ test('an Azure pause refuses a stranger, because the owner is on the checkpoint'
   assert.equal(out.code, 'not_your_job');
   assert.equal(client.calls.startNew.length, 0, 'and no orchestration was started');
 });
+
+// ---------------------------------------------------------------------------
+// History has to survive a pause on Azure too
+//
+// `mapDurableStatus` read the run's history out of `instance.output.history`.
+// Once the paused output became a pointer it stopped carrying history, so the
+// read always produced `[]`: the audit trail of what was asked and answered
+// was lost at the first pause, and `learnableAnswers` saw nothing at all on
+// the durable backend. The accumulated history travels in the orchestration
+// *input*, which provideInput already writes — the read was looking in the
+// wrong place.
+// ---------------------------------------------------------------------------
+
+test('a resumed orchestration still knows what was asked and answered', async () => {
+  const earlier = [
+    { type: 'run_started', jobId: 'job-1', at: '2026-09-30T09:00:00.000Z', task: { goal: 'g' } },
+    { type: 'question_asked', jobId: 'job-1', at: '2026-09-30T09:01:00.000Z', batch: aBatch() },
+  ];
+
+  const record = mapDurableStatus({
+    instanceId: 'job-1', runtimeStatus: 'Completed', output: paused(),
+    customStatus: { status: 'waiting_input' },
+    input: { record: { id: 'job-1', task: { goal: 'g' } }, resume: { history: earlier } },
+  });
+
+  assert.equal(record.history.length, 2, 'the carried history came back');
+  assert.equal(record.history[1].type, 'question_asked');
+});
+
+test('a question asked during the run reaches the history', async () => {
+  // A pause holds exactly one unanswered batch, so returning it in the output
+  // is bounded — unlike the accumulated history, which stays in the input.
+  const checkpoint = await checkpointHolding({ observations: [], identity: null });
+  const output = { ...paused(), asked: [
+    { type: 'question_asked', jobId: 'job-1', at: '2026-09-30T09:01:00.000Z', batch: aBatch() },
+  ] };
+  const client = pausedClient(output);
+  const jobs = createDurableJobs({
+    client, config: { maxQueueSize: 2, durable: { pollMs: 5 } },
+    notifier: null, logger: { warn() {}, info() {} }, checkpoint,
+  });
+
+  const out = await jobs.provideInput('job-1', { batchId: aBatch().batchId, answers: { proceed: 'approve' } }, {});
+  assert.equal(out.ok, true, JSON.stringify(out));
+
+  const forwarded = client.calls.startNew[0].input.resume.history;
+  const types = forwarded.map(e => e.type);
+  assert.ok(types.includes('question_asked'), `no question_asked in ${types}`);
+  assert.ok(types.includes('answer_received'), `no answer_received in ${types}`);
+});

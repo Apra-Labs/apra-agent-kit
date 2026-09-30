@@ -176,3 +176,39 @@ test('the key still tells two steps apart, and survives key reordering', () => {
     stepIdempotencyKey({ tool: 'f', args: { b: 2, a: 1 } }, 0),
   );
 });
+
+// ---------------------------------------------------------------------------
+// The scrub has to catch compound key names
+//
+// Matching was exact-after-normalising, so only a key that *equalled* a listed
+// word was stripped. Every real-world compound walked through: `client_secret`
+// is not `secret`, `x-api-key` is not `apikey`. The record carries the whole
+// conversation and arbitrary tool arguments, and it sits in a store for days.
+// ---------------------------------------------------------------------------
+
+test('compound credential key names are scrubbed', () => {
+  const dirty = {
+    client_secret: 'cs-LEAK',
+    'x-api-key': 'xak-LEAK',
+    privateKey: 'pk-LEAK',
+    'set-cookie': 'sc-LEAK',
+    sasToken: 'sas-LEAK',
+    connectionString: 'Server=x;Password=pw-LEAK',
+    nested: { deep: { refresh_token_value: 'rt-LEAK' } },
+  };
+  const out = JSON.stringify(scrub(dirty));
+  for (const leak of ['cs-LEAK', 'xak-LEAK', 'pk-LEAK', 'sc-LEAK', 'sas-LEAK', 'pw-LEAK', 'rt-LEAK']) {
+    assert.equal(out.includes(leak), false, `${leak} survived the scrub`);
+  }
+});
+
+test('the exact names it already caught are still caught', () => {
+  const out = JSON.stringify(scrub({ token: 'a', apiKey: 'b', password: 'c', cookie: 'd', authorization: 'e' }));
+  for (const leak of ['a', 'b', 'c', 'd', 'e']) assert.equal(out.includes(`"${leak}"`), false);
+});
+
+test('ordinary keys are left alone', () => {
+  // Over-scrubbing is the safe direction, but it must not eat the run's state.
+  const kept = scrub({ city: 'London', destination: 'Kyoto', estimatedCost: 'JPY 90,000', steps: [1, 2] });
+  assert.deepEqual(kept, { city: 'London', destination: 'Kyoto', estimatedCost: 'JPY 90,000', steps: [1, 2] });
+});

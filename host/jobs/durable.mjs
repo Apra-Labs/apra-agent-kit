@@ -18,6 +18,19 @@ export const ACTIVITY_NAME = 'runTaskActivity';
 const ACTIVE = ['Pending', 'Running'];
 const STATUS_OPTS = { showHistory: false, showInput: true };
 
+/**
+ * Every history entry this instance knows about.
+ *
+ * Earlier segments are carried forward in the orchestration input by
+ * provideInput; the current segment's own entries, when it settles, come back
+ * in the output. Neither alone is the whole run.
+ */
+function carriedHistory(instance) {
+  const carried = instance.input?.resume?.history ?? [];
+  const fromOutput = instance.output?.history ?? [];
+  return [...carried, ...fromOutput];
+}
+
 export function mapDurableStatus(instance) {
   if (!instance) return null;
   const record = instance.input?.record ? structuredClone(instance.input.record) : { id: instance.instanceId };
@@ -44,13 +57,18 @@ export function mapDurableStatus(instance) {
       out.pendingBatchId = instance.output.batchId ?? null;
       // A pointer to the memory store, not the state itself.
       out.checkpointKey = instance.output.checkpointKey ?? null;
-      out.history = instance.output.history ?? [];
+      // The accumulated history travels in the orchestration *input*, written
+      // by provideInput when it started this one. The output stopped carrying
+      // it when it became a pointer, so reading it there always gave [] — the
+      // audit trail vanished at the first pause and the learner saw nothing.
+      out.history = carriedHistory(instance);
       out.result = null;
       out.error = null;
     } else {
       out.result = instance.output.result ?? null;
       out.error = instance.output.error ?? null;
-      out.history = instance.output.history ?? [];
+      // Same for a settled run: segments before the last pause are in the input.
+      out.history = carriedHistory(instance);
       out.budget = instance.output.budget ?? null;
     }
   }
@@ -244,7 +262,10 @@ export function createDurableJobs({ client, getClient, config, notifier = null, 
 
       const inst = await bound.getStatus(jobId, STATUS_OPTS);
       const record = mapDurableStatus(inst);
-      const history = record?.history ?? [];
+      // Plus anything asked during the segment that just paused. A pause holds
+      // one unanswered batch, so this is bounded; the accumulated history
+      // stays in the input rather than growing the 16 KB output.
+      const history = [...(record?.history ?? []), ...(inst?.output?.asked ?? [])];
 
       // Follow the pointer. The paused output carries a key and nothing else,
       // so without this read the run resumes from an empty history and re-does
