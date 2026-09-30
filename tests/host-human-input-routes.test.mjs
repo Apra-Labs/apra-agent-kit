@@ -265,3 +265,60 @@ test('mcp: a tool may declare an undo without extendRegistry stripping it', () =
   assert.equal(typeof registered.undo.run, 'function');
   assert.equal(typeof registered.undo.describe, 'function');
 });
+
+// ---------------------------------------------------------------------------
+// A batch id is not a capability
+//
+// The refusal below was passing its test while being unreachable in production.
+// `planResume` reads the owner from `metadata.identity`, and the submit route
+// wrote `metadata.user` — a bare string under a different key. So `owner` was
+// structurally always null, the `if (owner && ...)` guard never fired, and
+// anyone who could reach POST /jobs/:id/input with a batch id could answer
+// somebody else's approval. The test that "covered" it set a field production
+// never set.
+// ---------------------------------------------------------------------------
+
+test('submitting records who the run is for, in the shape the refusal reads', async () => {
+  let seen = null;
+  const jobs = {
+    async submit(task, opts) { seen = opts.metadata; return { jobId: 'job-9', status: 'queued' }; },
+  };
+  const routes = build(jobs);
+  await routes.task.handler({
+    body: { goal: 'Book a flight' }, query: {}, headers: {}, params: {},
+    user: { id: 'alice' },
+  });
+
+  // The exact path planResume and park() read: metadata.identity.personId.
+  assert.equal(seen.identity?.personId, 'alice');
+});
+
+test('an anonymous submit records no owner, and does not invent one', async () => {
+  // A host with no authentication must keep working. What it must not do is
+  // fabricate an owner, which would lock the run to a person who does not exist.
+  let seen = null;
+  const jobs = { async submit(task, opts) { seen = opts.metadata; return { jobId: 'job-9', status: 'queued' }; } };
+  await build(jobs).task.handler({ body: { goal: 'Book a flight' }, query: {}, headers: {}, params: {}, user: null });
+  assert.equal(seen.identity, null);
+});
+
+test('a stranger cannot answer a question asked of somebody else', async () => {
+  // End to end over the two halves that have to agree: the metadata the submit
+  // route writes, and the owner planResume reads back out of it.
+  let submitted = null;
+  await build({ async submit(t, o) { submitted = o.metadata; return { jobId: 'job-1', status: 'queued' }; } })
+    .task.handler({ body: { goal: 'Book a flight' }, query: {}, headers: {}, params: {}, user: { id: 'alice' } });
+
+  const { planResume } = await import('../host/human-input/resume.mjs');
+  const record = { id: 'job-1', status: 'waiting_input', pendingInput: aBatch, metadata: submitted };
+
+  const mallory = planResume(record, { batchId: aBatch.batchId, answers: { proceed: 'approve' } },
+    { history: [], identity: { personId: 'mallory' }, now: new Date('2026-09-24T10:00:00.000Z') });
+  assert.equal(mallory.ok, false);
+  assert.equal(mallory.code, 'not_your_job');
+  assert.equal(mallory.status, REFUSALS.not_your_job, '403, not a 404 that hides whether the job exists');
+
+  const alice = planResume(record, { batchId: aBatch.batchId, answers: { proceed: 'approve' } },
+    { history: [], identity: { personId: 'alice' }, now: new Date('2026-09-24T10:00:00.000Z') });
+  assert.equal(alice.ok, true, 'the person it was asked of is still let through');
+});

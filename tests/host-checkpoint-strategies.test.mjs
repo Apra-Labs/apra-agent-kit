@@ -240,3 +240,85 @@ test('plan-execute does not checkpoint a task with no id', async () => {
   await drain(strat);
   assert.deepEqual(checkpoint.saves, [], 'nothing was written to a shared row');
 });
+
+// ---------------------------------------------------------------------------
+// A resume must not count the same work twice
+//
+// `resumeContextFor` builds `resumeFrom` from the checkpoint row, and
+// plan-execute then loads that same row itself. Both paths feed the same
+// observation list, so a resume appended everything the run had already done a
+// second time — and the next save persisted the doubled list, so the row grew
+// geometrically with the number of pauses.
+// ---------------------------------------------------------------------------
+
+test('a resume does not replay the checkpoint observations twice', async () => {
+  const obs = { type: 'observation', stepType: 'tool', tool: 'book', result: { ok: true, ref: 'FL-1' } };
+  const cp = {
+    plan: { steps: [{ type: 'tool', tool: 'book', args: { x: 1 }, reason: 'r', review: false }], cursor: 1 },
+    observations: [obs],
+    idempotencyKeys: ['book-{"x":1}-0'],
+    strategy: 'plan-execute',
+  };
+  const checkpoint = {
+    save: async () => true,
+    load: async () => ({ ok: true, checkpoint: cp }),
+    clear: async () => {},
+    hasIdempotencyKey: async () => true,
+    addIdempotencyKey: async () => {},
+  };
+
+  const strategy = createPlanExecuteStrategy({
+    task: { id: 'job-dup', goal: 'book a flight' },
+    tools: [{ name: 'book', description: 'book', reversible: false, timeout: 5000, run: async () => ({ ok: true }) }],
+    fleetApi: createMockFleetApi({ members: rosterNames(1), promptResponses: [done()] }),
+    checkpoint,
+    // Exactly what the jobs backend hands over: built from the same row.
+    resumeFrom: { observations: [obs], plan: cp.plan, budget: null, interruptions: 0, identity: null },
+  });
+  for await (const _e of strategy.iterate()) { /* drain */ }
+
+  assert.equal(strategy.history().length, 1, 'the observation is present once, not twice');
+});
+
+test('a resume with no resumeFrom still restores the checkpoint observations', async () => {
+  // The crash-recovery path, where nothing seeds resumeFrom. Skipping the
+  // checkpoint load outright would lose the run's whole history.
+  const obs = { type: 'observation', stepType: 'tool', tool: 'book', result: { ok: true } };
+  const cp = {
+    plan: { steps: [{ type: 'tool', tool: 'book', args: { x: 1 }, reason: 'r', review: false }], cursor: 1 },
+    observations: [obs], idempotencyKeys: ['book-{"x":1}-0'], strategy: 'plan-execute',
+  };
+  const strategy = createPlanExecuteStrategy({
+    task: { id: 'job-crash', goal: 'book a flight' },
+    tools: [{ name: 'book', description: 'book', reversible: false, timeout: 5000, run: async () => ({ ok: true }) }],
+    fleetApi: createMockFleetApi({ members: rosterNames(1), promptResponses: [done()] }),
+    checkpoint: { save: async () => true, load: async () => ({ ok: true, checkpoint: cp }),
+      clear: async () => {}, hasIdempotencyKey: async () => true, addIdempotencyKey: async () => {} },
+    resumeFrom: null,
+  });
+  for await (const _e of strategy.iterate()) { /* drain */ }
+  assert.equal(strategy.history().length, 1, 'restored from the checkpoint');
+});
+
+test('a resume keeps the idempotency keys, so completed work is not redone', async () => {
+  // The keys live only on the checkpoint — resumeFrom does not carry them — so
+  // whatever fixes the doubling must not skip the load that supplies them.
+  let ran = 0;
+  const cp = {
+    plan: { steps: [{ type: 'tool', tool: 'book', args: { x: 1 }, reason: 'r', review: false }], cursor: 0 },
+    observations: [{ type: 'observation', stepType: 'tool', tool: 'book', result: { ok: true } }],
+    idempotencyKeys: ['book-{"x":1}-0'],
+    strategy: 'plan-execute',
+  };
+  const strategy = createPlanExecuteStrategy({
+    task: { id: 'job-idem', goal: 'book a flight' },
+    tools: [{ name: 'book', description: 'book', reversible: false, timeout: 5000,
+      run: async () => { ran += 1; return { ok: true }; } }],
+    fleetApi: createMockFleetApi({ members: rosterNames(1), promptResponses: [done()] }),
+    checkpoint: { save: async () => true, load: async () => ({ ok: true, checkpoint: cp }),
+      clear: async () => {}, hasIdempotencyKey: async () => true, addIdempotencyKey: async () => {} },
+    resumeFrom: { observations: cp.observations, plan: cp.plan, budget: null, interruptions: 0, identity: null },
+  });
+  for await (const _e of strategy.iterate()) { /* drain */ }
+  assert.equal(ran, 0, 'the already-booked step was not booked again');
+});

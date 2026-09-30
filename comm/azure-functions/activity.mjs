@@ -64,6 +64,14 @@ export function createRunTaskActivity({ getClient, pollMs = 2000, getContext = g
         })
       : undefined;
 
+    // One checkpoint for the whole activity: the strategies write it as the run
+    // advances (so completed work is recorded and an irreversible step is not
+    // repeated), and the pause below writes the final one. Building it only for
+    // the pause left the run with nothing to save to or load from.
+    const checkpoint = hostCtx.memory?.checkpointStore
+      ? createCheckpoint({ store: hostCtx.memory.checkpointStore, logger: hostCtx.logger })
+      : null;
+
     try {
       const run = await settleWhenAborted(
         executeHostedTask({ ...task, id: jobId }, {
@@ -79,6 +87,7 @@ export function createRunTaskActivity({ getClient, pollMs = 2000, getContext = g
           signal: controller.signal,
           onProgress: (progress) => emit({ type: 'progress', jobId, at: iso(), ...progress }),
           askUser,
+          checkpoint,
           resumeFrom: resume?.resumeFrom ?? null,
         }),
         controller.signal,
@@ -92,11 +101,7 @@ export function createRunTaskActivity({ getClient, pollMs = 2000, getContext = g
         // only a key. Durable caps that output at 16 KB, and a long run's state
         // does not fit — which is why #63 had to ship a pause_too_large failure.
         const taskKey = checkpointKey({ id: jobId });
-        const cp = hostCtx.memory?.checkpointStore
-          ? createCheckpoint({ store: hostCtx.memory.checkpointStore, logger: hostCtx.logger })
-          : null;
-
-        const saved = cp && await cp.save(taskKey, {
+        const saved = checkpoint && await checkpoint.save(taskKey, {
           jobId,
           traceId: run.traceId ?? null,
           task,

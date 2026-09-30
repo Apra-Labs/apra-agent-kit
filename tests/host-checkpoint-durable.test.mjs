@@ -121,3 +121,91 @@ test('an ordinary Completed instance is untouched', () => {
   assert.equal(record.result, 'done');
   assert.equal(record.checkpointKey, undefined);
 });
+
+// ---------------------------------------------------------------------------
+// ...and reading it back for real
+//
+// The two tests above assert the shape of the pointer. Neither drives the path
+// that has to *dereference* it, and that path did not exist: provideInput
+// called planResume with no `loaded` and no `taskKey`, so a resumed Azure run
+// rebuilt from an empty history and re-did everything it had already done.
+//
+// The whole point of the pointer is that somebody follows it.
+// ---------------------------------------------------------------------------
+
+const { createDurableJobs } = await import('../host/jobs/durable.mjs');
+const { createCheckpoint } = await import('../host/checkpoint/index.mjs');
+const { createSqliteStore } = await import('../host/memory/store/sqlite.mjs');
+const fs = await import('node:fs/promises');
+const os = await import('node:os');
+const path = await import('node:path');
+
+function pausedClient(output) {
+  const calls = { startNew: [] };
+  const instances = {
+    'job-1': {
+      instanceId: 'job-1', runtimeStatus: 'Completed', output,
+      customStatus: { status: 'waiting_input' },
+      input: { record: { id: 'job-1', task: { goal: 'g' } }, task: { id: 'job-1', goal: 'g' }, metadata: {} },
+      createdTime: '2026-09-30T09:00:00.000Z', lastUpdatedTime: '2026-09-30T09:00:00.000Z',
+    },
+  };
+  return {
+    calls, instances,
+    async startNew(name, { instanceId, input }) { calls.startNew.push({ name, instanceId, input }); return instanceId; },
+    async getStatus(id) { return instances[id] ?? null; },
+    async getStatusBy() { return []; },
+    async terminate() {}, async raiseEvent() {},
+  };
+}
+
+async function checkpointHolding(fields) {
+  // A real store, not a double. Every checkpoint defect on this branch that
+  // the doubles missed was caught by writing through one.
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'cp-durable-'));
+  const store = createSqliteStore({ dbPath: path.join(dir, 'memory.db') });
+  await store.open();
+  const cp = createCheckpoint({ store, logger: { warn() {}, info() {} } });
+  await cp.save('cp-job-1', { jobId: 'job-1', task: { id: 'job-1', goal: 'g' }, ...fields });
+  return cp;
+}
+
+test('answering an Azure pause resumes from the checkpoint, not from nothing', async () => {
+  const obs = [{ type: 'observation', stepType: 'tool', tool: 'book', result: { ok: true, ref: 'FL-1' } }];
+  const checkpoint = await checkpointHolding({
+    observations: obs,
+    plan: { steps: [{ type: 'tool', tool: 'book', args: { x: 1 }, reason: 'r', review: false }], cursor: 1 },
+    interruptions: 2,
+    identity: { personId: 'alice' },
+  });
+
+  const client = pausedClient(paused());
+  const jobs = createDurableJobs({
+    client, config: { maxQueueSize: 2, durable: { pollMs: 5 } },
+    notifier: null, logger: { warn() {}, info() {} }, checkpoint,
+  });
+
+  const out = await jobs.provideInput('job-1', { batchId: aBatch().batchId, answers: { proceed: 'approve' } },
+    { identity: { personId: 'alice' } });
+  assert.equal(out.ok, true, JSON.stringify(out));
+
+  const resume = client.calls.startNew[0].input.resume;
+  assert.deepEqual(resume.resumeFrom.observations, obs, 'the completed work came back');
+  assert.equal(resume.resumeFrom.plan.cursor, 1, 'and where it had got to');
+  assert.equal(resume.resumeFrom.interruptions, 2, 'and how many times it had already asked');
+});
+
+test('an Azure pause refuses a stranger, because the owner is on the checkpoint', async () => {
+  const checkpoint = await checkpointHolding({ observations: [], identity: { personId: 'alice' } });
+  const client = pausedClient(paused());
+  const jobs = createDurableJobs({
+    client, config: { maxQueueSize: 2, durable: { pollMs: 5 } },
+    notifier: null, logger: { warn() {}, info() {} }, checkpoint,
+  });
+
+  const out = await jobs.provideInput('job-1', { batchId: aBatch().batchId, answers: { proceed: 'approve' } },
+    { identity: { personId: 'mallory' } });
+  assert.equal(out.ok, false);
+  assert.equal(out.code, 'not_your_job');
+  assert.equal(client.calls.startNew.length, 0, 'and no orchestration was started');
+});

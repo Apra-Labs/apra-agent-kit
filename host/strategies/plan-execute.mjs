@@ -43,9 +43,13 @@ export function createPlanExecuteStrategy({
 }) {
   const systemPrompt = buildSystemPrompt({ agentName, agentDescription, memories, conversation });
   const toolCatalog = formatTools(tools);
-  // Seeded on a resume; the empty array it has always been otherwise. A
-  // run-state checkpoint may append to it further down.
+  // Seeded on a resume; the empty array it has always been otherwise.
   const observations = resumeFrom?.observations ? [...resumeFrom.observations] : [];
+  // ...and if it was seeded, the checkpoint load below must not append the same
+  // observations again. `resumeContextFor` builds `resumeFrom` from the very
+  // row that load reads, so before this flag a resume counted every completed
+  // step twice, and the next save persisted the doubled list.
+  const seededFromResume = Array.isArray(resumeFrom?.observations);
   // One key, from one place. The retired run-state used `task.id ?? task.goal`,
   // so two concurrent runs of the same goal shared a row and clobbered each
   // other. A task with no id cannot be checkpointed at all — see checkpointKey.
@@ -109,7 +113,10 @@ export function createPlanExecuteStrategy({
           currentPlan = { ...cp.plan, steps: cp.plan.steps };
           resumePending = true;
         }
-        for (const obs of cp.observations ?? []) remember(obs);
+        // Only when nothing seeded them: same row, same observations.
+        if (!seededFromResume) for (const obs of cp.observations ?? []) remember(obs);
+        // Always taken from here. `resumeFrom` does not carry the keys, and
+        // without them a completed irreversible step runs a second time.
         idempotencyKeys = new Set(cp.idempotencyKeys ?? []);
       }
     }

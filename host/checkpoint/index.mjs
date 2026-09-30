@@ -34,12 +34,28 @@ export function createCheckpoint({ store, logger = console, kitVersion = null } 
    */
   async function save(taskKey, fields) {
     try {
-      const record = createCheckpointRecord({ ...fields, taskKey, kitVersion });
-      const text = JSON.stringify(record);
-
       // One row per run. Two triggers write it, so an insert-only path would
       // grow the store with every step.
       const existing = await store.get(taskKey);
+
+      // The writers know different things. The strategies hold the idempotency
+      // keys, the recalled facts and the conversation; the pause path holds the
+      // parked batch and knows nothing of the keys. A save that replaced the
+      // row wholesale let the pause erase the keys, and the resumed run then
+      // re-executed the irreversible step it had already completed.
+      //
+      // So a field the writer did not mention keeps the value already stored.
+      // A field it did mention wins, including an explicit null — otherwise
+      // settling could never clear the parked batch.
+      let base = null;
+      if (existing) {
+        try { base = JSON.parse(existing.text); } catch { base = null; }
+      }
+      const merged = base ? { ...base, ...fields } : fields;
+
+      const record = createCheckpointRecord({ ...merged, taskKey, kitVersion });
+      const text = JSON.stringify(record);
+
       if (existing) {
         await store.update(taskKey, { text });
       } else {

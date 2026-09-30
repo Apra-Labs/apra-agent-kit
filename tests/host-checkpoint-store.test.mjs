@@ -9,6 +9,9 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 
 const { createCheckpoint } = await import('../host/checkpoint/index.mjs');
 const { CHECKPOINT_VERSION } = await import('../host/checkpoint/record.mjs');
@@ -200,4 +203,64 @@ test('the entry is accepted by the real sqlite store, not just by a double', asy
     await store.close();
     await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
   }
+});
+
+// ---------------------------------------------------------------------------
+// One row, several writers
+//
+// The strategies write the checkpoint as the run advances; the pause path
+// writes it again on the way out. The pause writer does not know the
+// idempotency keys — they live in the strategy's loop — so a save that
+// replaced the row wholesale erased them, and the resumed run re-executed the
+// irreversible step it had already completed.
+// ---------------------------------------------------------------------------
+
+test('a save preserves fields the writer did not mention', async () => {
+  const { createSqliteStore } = await import('../host/memory/store/sqlite.mjs');
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'cp-merge-'));
+  const store = createSqliteStore({ dbPath: path.join(dir, 'memory.db') });
+  await store.open();
+  const cp = createCheckpoint({ store, logger: { warn() {}, info() {} } });
+
+  // The strategy, mid-run.
+  await cp.save('cp-job-1', {
+    jobId: 'job-1', task: { id: 'job-1', goal: 'g' },
+    observations: [{ type: 'observation', tool: 'book' }],
+    idempotencyKeys: ['book-{"x":1}-0'],
+    conversation: [{ role: 'user', text: 'hi' }],
+    plan: { steps: [{ type: 'tool', tool: 'book' }], cursor: 0 },
+  });
+
+  // The pause path, which knows nothing about idempotency keys.
+  await cp.save('cp-job-1', {
+    jobId: 'job-1', task: { id: 'job-1', goal: 'g' },
+    observations: [{ type: 'observation', tool: 'book' }],
+    plan: { steps: [{ type: 'tool', tool: 'book' }], cursor: 0 },
+    pendingBatchId: 'inp-1',
+  });
+
+  const after = await cp.load('cp-job-1');
+  assert.equal(after.ok, true);
+  assert.deepEqual(after.checkpoint.idempotencyKeys, ['book-{"x":1}-0'], 'the keys survived the pause');
+  assert.deepEqual(after.checkpoint.conversation, [{ role: 'user', text: 'hi' }]);
+  assert.equal(after.checkpoint.pendingBatchId, 'inp-1', 'and the pause still recorded its batch');
+  await store.close();
+});
+
+test('a writer that does mention a field still wins', async () => {
+  // Merging must not make a field unclearable, or settling could never drop
+  // the parked batch.
+  const { createSqliteStore } = await import('../host/memory/store/sqlite.mjs');
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'cp-merge2-'));
+  const store = createSqliteStore({ dbPath: path.join(dir, 'memory.db') });
+  await store.open();
+  const cp = createCheckpoint({ store, logger: { warn() {}, info() {} } });
+
+  await cp.save('cp-job-2', { jobId: 'job-2', task: { id: 'job-2', goal: 'g' }, pendingBatchId: 'inp-1', idempotencyKeys: ['a'] });
+  await cp.save('cp-job-2', { jobId: 'job-2', task: { id: 'job-2', goal: 'g' }, pendingBatchId: null, idempotencyKeys: ['a', 'b'] });
+
+  const after = await cp.load('cp-job-2');
+  assert.equal(after.checkpoint.pendingBatchId, null, 'an explicit null clears it');
+  assert.deepEqual(after.checkpoint.idempotencyKeys, ['a', 'b']);
+  await store.close();
 });

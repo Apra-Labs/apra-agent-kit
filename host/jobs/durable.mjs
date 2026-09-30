@@ -11,6 +11,7 @@ import {
 import { planResume } from '../human-input/resume.mjs';
 import { answeredBatchesFromHistory } from '../human-input/ask.mjs';
 import { isStale, isExpired } from '../human-input/batch.mjs';
+import { checkpointKey } from '../checkpoint/record.mjs';
 
 export const ORCHESTRATOR_NAME = 'runTaskOrchestrator';
 export const ACTIVITY_NAME = 'runTaskActivity';
@@ -73,7 +74,7 @@ function clientFactory({ client, getClient }) {
   throw new Error('createDurableJobs requires a Durable client');
 }
 
-export function createDurableJobs({ client, getClient, config, notifier = null, logger = console, allowHttpCallbacks = false, now = () => new Date() }) {
+export function createDurableJobs({ client, getClient, config, notifier = null, logger = console, allowHttpCallbacks = false, checkpoint = null, kitVersion = null, now = () => new Date() }) {
   const resolveClient = clientFactory({ client, getClient });
   const { maxQueueSize = 100, durable: { pollMs = 2000 } = {} } = config ?? {};
   let closed = false;
@@ -245,7 +246,18 @@ export function createDurableJobs({ client, getClient, config, notifier = null, 
       const record = mapDurableStatus(inst);
       const history = record?.history ?? [];
 
-      const plan = planResume(record, submission, { history, identity, now: now() });
+      // Follow the pointer. The paused output carries a key and nothing else,
+      // so without this read the run resumes from an empty history and re-does
+      // every step it had already completed — including the irreversible ones.
+      const taskKey = record?.checkpointKey ?? checkpointKey({ id: jobId });
+      const loaded = checkpoint ? await checkpoint.load(taskKey) : { ok: false, reason: 'absent' };
+      if (checkpoint && !loaded.ok && loaded.reason !== 'absent') {
+        logger.warn(`[durable] job ${jobId} resumed from history (${loaded.reason}); its checkpoint was unusable`);
+      }
+
+      const plan = planResume(record, submission, {
+        loaded, taskKey, history, identity, kitVersion, now: now(),
+      });
       if (!plan.ok) return plan;
 
       const answerEntry = answerReceivedEntry(jobId, {

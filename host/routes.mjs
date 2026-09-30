@@ -49,7 +49,21 @@ export function buildRoutes({ jobs, notifier, runSync, mcpRaw, mcpWeb, runLoopEn
         }
         const { callbackUrl, metadata, ...task } = body;
         try {
-          const out = await jobs.submit(task, { callbackUrl, metadata: { ...(metadata ?? {}), user: request.user?.id ?? null } });
+          // `identity` is what park() copies onto the checkpoint and what
+          // planResume reads back to decide who may answer. Writing only
+          // `user` — a bare string under another key — left that guard with a
+          // structurally null input, so a batch id WAS a capability.
+          // Null when nobody is authenticated: an unauthenticated host keeps
+          // working, and no owner is invented.
+          const personId = request.user?.id ?? null;
+          const out = await jobs.submit(task, {
+            callbackUrl,
+            metadata: {
+              ...(metadata ?? {}),
+              user: personId,
+              identity: personId ? { personId } : null,
+            },
+          });
           return json(202, { ...out, links: { self: `/jobs/${out.jobId}`, events: `/jobs/${out.jobId}/events` } });
         } catch (err) {
           if (err instanceof JobQueueFullError) return json(429, { ok: false, error: 'queue_full', message: err.message }, { 'retry-after': '30' });
