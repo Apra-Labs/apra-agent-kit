@@ -65,7 +65,7 @@ The five things most likely to bite somebody, that no task's tests fully cover:
 
 ---
 
-## Task 1: The entity definitions
+## Task 1 — DONE: The entity definitions
 
 **Files:**
 - Create: `comm/azure-functions/entities/checkpoint-entity.mjs`
@@ -156,7 +156,7 @@ df.app.entity('checkpoint', (context) => {
 
 ---
 
-## Task 2: `advance` — one step per activity
+## Task 2 — DONE: `advance` — one step per activity
 
 **Files:**
 - Modify: `comm/azure-functions/activity.mjs`
@@ -222,7 +222,7 @@ test('advance skips a step whose idempotency key is already recorded', async () 
 
 ---
 
-## Task 3: The orchestrator drives the loop
+## Task 3 — DONE: The orchestrator drives the loop
 
 **Files:**
 - Modify: `comm/azure-functions/orchestrator.mjs`
@@ -255,7 +255,7 @@ for (let i = 0; i < MAX_STEPS; i += 1) {
 
 ---
 
-## Task 4: Resume reads the entity
+## Task 4 — DONE: Resume reads the entity
 
 **Files:**
 - Modify: `host/jobs/durable.mjs`
@@ -277,7 +277,7 @@ via `client.readEntityState(new df.EntityId('checkpoint', taskKey))`.
 
 ---
 
-## Task 5: Conversation and facts on entities
+## Task 5 — DONE: Conversation and facts on entities
 
 **Files:**
 - Create: `host/memory/store/entity.mjs`, `host/memory/conversation-store/entity.mjs`
@@ -300,7 +300,7 @@ a silently lost fact is indistinguishable from one that was never learnt.
 
 ---
 
-## Task 6: Default the Azure config to entities
+## Task 6 — DONE: Default the Azure config to entities
 
 **Files:**
 - Modify: `deploy/azure-functions/host.config.mjs`
@@ -314,7 +314,7 @@ a silently lost fact is indistinguishable from one that was never learnt.
 
 ---
 
-## Task 7: Microsoft SQL Server adapter (selectable, never default)
+## Task 7 — DONE: Microsoft SQL Server adapter (selectable, never default)
 
 **Files:**
 - Create: `host/memory/store/mssql.mjs`, `host/memory/conversation-store/mssql.mjs`
@@ -332,7 +332,7 @@ a silently lost fact is indistinguishable from one that was never learnt.
 
 ---
 
-## Task 8: Entity retention
+## Task 8 — DONE: Entity retention
 
 **Files:**
 - Create: `host/jobs/entity-retention.mjs`
@@ -350,7 +350,7 @@ state accumulates for the life of the storage account.
 
 ---
 
-## Task 9: End to end on Azurite
+## Task 9 — BLOCKED (needs Docker): End to end on Azurite
 
 **Files:**
 - Modify: `docker-compose.e2e.yml` if needed, `.github/workflows/ci-host.yml`
