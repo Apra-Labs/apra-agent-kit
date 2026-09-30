@@ -1,6 +1,6 @@
 {
   "name": "@apralabs/create-agent-kit",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Create a Fleet agent project: npm create @apralabs/agent-kit my-agent",
   "repository": {
     "type": "git",

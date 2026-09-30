@@ -2,7 +2,7 @@
 
 What's built, what's next, and what's on the horizon.
 
-Last updated: 2026-09-29
+Last updated: 2026-09-30
 
 ## Shipped
 
@@ -30,6 +30,8 @@ These are live in the kit today.
 | Kill switch (disable all writes without redeploy) | Done | [CONTRACT](CONTRACT.md) |
 | Concurrency acceptance tests | Done | [concurrency](concurrency.md) |
 | Scheduled workflows | Done | [scheduled-workflows-spec](specs/scheduled-workflows-spec.md) |
+| Docker VM + Azure Functions deployment modes | Done | [getting-started](getting-started.md) |
+| Fleet auth provisioning in Docker | Done | [deploy-azure](deploy-azure-functions.md) |
 
 ## In Progress
 
