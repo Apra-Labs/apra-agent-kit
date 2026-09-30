@@ -3,10 +3,13 @@
 // Long-term facts in Microsoft SQL Server. **Selectable, never the default** —
 // the default is the task hub, so a clone needs no server at all.
 //
-// The `mssql` driver is imported lazily, inside the factory, exactly the way
-// the Cosmos adapter is. A clone that never selects this adapter never loads
-// the module and never needs it installed, which is why it is an optional
-// dependency rather than a required one.
+// The `mssql` driver is imported lazily, inside `open()`, exactly the way the
+// Cosmos adapter imports `@azure/cosmos`. Neither is declared in package.json:
+// a clone that never selects the adapter never loads the module and never needs
+// it, and declaring it would pull tedious, @azure/identity and keyvault into
+// every install for a store almost nobody selects.
+//
+// **An adopter who sets `store: 'mssql'` installs `mssql` themselves.**
 //
 // The predicates match host/memory/store/sqlite.mjs: same filters, any-of tag
 // match, sort by retrieval strength, limit applied after the sort. Tags are

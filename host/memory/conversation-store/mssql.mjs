@@ -3,7 +3,8 @@
 // Chat turns in Microsoft SQL Server. Selectable, never the default.
 //
 // Same lazy-import rule as the facts adapter: `mssql` is loaded inside `open()`
-// and nowhere else, so a clone that does not select it never needs the driver.
+// and nowhere else, and is not declared in package.json — an adopter who selects
+// this store installs the driver themselves, exactly as for `@azure/cosmos`.
 
 const TABLE = 'agent_conversation_turns';
 
