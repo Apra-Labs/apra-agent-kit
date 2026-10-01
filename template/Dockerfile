@@ -14,19 +14,20 @@ WORKDIR /workspace
 
 # Use npm install — a generated project ships without a lockfile.
 # Commit the lockfile npm writes here to enable lockfile-based installs.
-# The local npm install of @apralabs/apra-fleet can break (its published
-# package has an internal file: dependency). Force-link the working global
-# install so deep imports like the workflow engine resolve correctly.
 COPY package.json ./
-RUN npm install --omit=dev \
-  && mkdir -p node_modules/@apralabs \
-  && rm -rf node_modules/@apralabs/apra-fleet \
-  && ln -s "$(npm root -g)/@apralabs/apra-fleet" node_modules/@apralabs/apra-fleet
+RUN npm install --omit=dev
 
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN sed -i 's/\r$//' /usr/local/bin/docker-entrypoint.sh && chmod +x /usr/local/bin/docker-entrypoint.sh
 
 COPY . .
+
+# The published @apralabs/apra-fleet has an internal file: dependency that npm
+# hoists incorrectly — the sub-packages land but the parent doesn't. Link the
+# working global install after COPY so it survives the layer.
+RUN mkdir -p node_modules/@apralabs \
+  && rm -rf node_modules/@apralabs/apra-fleet \
+  && ln -s /usr/local/lib/node_modules/@apralabs/apra-fleet node_modules/@apralabs/apra-fleet
 
 EXPOSE 3000
 
