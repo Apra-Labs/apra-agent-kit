@@ -62,7 +62,9 @@ export function ensureApralabs() {
   fs.mkdirSync(scopeDest, { recursive: true });
 
   if (src.scope) {
-    // Flat layout: symlink the whole @apralabs scope directory.
+    // Flat layout: if the scope dir is already correct (or is a real directory
+    // with the packages installed by npm), leave it alone. Only replace with a
+    // symlink when the packages are genuinely missing.
     let destIsCorrect = false;
     try {
       destIsCorrect = fs.existsSync(scopeDest) && fs.realpathSync(scopeDest) === fs.realpathSync(src.scope);
@@ -71,6 +73,11 @@ export function ensureApralabs() {
     }
 
     if (!destIsCorrect) {
+      const hasWorkflow = fs.existsSync(path.join(scopeDest, 'apra-fleet-workflow'));
+      const hasFleet = fs.existsSync(path.join(scopeDest, 'apra-fleet'));
+      if (hasWorkflow && hasFleet) {
+        return;
+      }
       fs.rmSync(scopeDest, { recursive: true, force: true });
       fs.symlinkSync(src.scope, scopeDest, 'junction');
     }

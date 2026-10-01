@@ -11,42 +11,17 @@ const engineScript = path.join(here, 'hello.js');
 
 export const selfExecuting = true;
 
-function extractText(raw) {
-  if (typeof raw === 'string') return raw;
-  return (raw?.content ?? []).map(p => p.text ?? '').join('');
-}
-
 export async function runHello({ fleetApi, workspace, signal, reportPhase, name } = {}) {
   if (!fleetApi) {
+    // CLI run: spawn Fleet, take one lease, run, release.
     return withStandaloneLease((ctx) => runHello({ ...ctx, reportPhase, name }));
   }
+  const { FleetWorkflow } = await import('@apralabs/apra-fleet/packages/apra-fleet-workflow/src/workflow/index.mjs');
+  const { WorkflowEngine } = await import('@apralabs/apra-fleet/packages/apra-fleet-workflow/src/workflow/engine.mjs');
 
-  try {
-    const { FleetWorkflow } = await import('@apralabs/apra-fleet/packages/apra-fleet-workflow/src/workflow/index.mjs');
-    const { WorkflowEngine } = await import('@apralabs/apra-fleet/packages/apra-fleet-workflow/src/workflow/engine.mjs');
-    const workflow = new FleetWorkflow(fleetApi);
-    const engine = new WorkflowEngine(workflow);
-    return await engine.executeFile(engineScript, { fleetApi, workspace, signal, reportPhase, name });
-  } catch (err) {
-    if (err?.code !== 'ERR_MODULE_NOT_FOUND') throw err;
-
-    console.warn(
-      '[hello] @apralabs/apra-fleet not found — running without the workflow engine.\n' +
-      '        Engine features (budgets, journaling, structured output) are unavailable.\n' +
-      '        Fix: npm install @apralabs/apra-fleet   or see docs/getting-started.md',
-    );
-    const { main } = await import('./hello.js');
-    return main({
-      command: async (cmd, o = {}) => extractText(
-        await fleetApi.executeCommand({ member_name: o.member_name ?? 'doer', command: cmd }),
-      ),
-      agent: async (prompt, o = {}) => extractText(
-        await fleetApi.executePrompt({ member_name: o.member_name ?? 'doer', prompt }),
-      ),
-      log: (msg) => console.log(`[Workflow Log] ${msg}`),
-      args: { name },
-    });
-  }
+  const workflow = new FleetWorkflow(fleetApi);
+  const engine = new WorkflowEngine(workflow);
+  return await engine.executeFile(engineScript, { fleetApi, workspace, signal, reportPhase, name });
 }
 
 function isMainModule() {
