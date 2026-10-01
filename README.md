@@ -26,55 +26,52 @@
 
 ### Quick Start
 
-Scaffold a new agent project:
+**Step 1 — Scaffold a new project:**
 
 ```bash
 npm create @apralabs/agent-kit my-agent
 cd my-agent
 ```
 
-The command copies the kit, writes a starter workflow, and offers to install
-Fleet and the Claude CLI. It explains each step before it asks.
+The command copies the kit, installs dependencies, writes a starter workflow,
+and shows you what's enabled. It explains each step before it asks.
 
-Generate an OAuth token (required for all run modes):
+**Step 2 — Verify your environment:**
 
 ```bash
-claude setup-token
+npm run doctor     # check prerequisites
+npm test           # mock tests — no Fleet, no token needed
 ```
 
-Then pick how to run it:
-
-#### Without Docker
+**Step 3 — Run the starter workflow:**
 
 ```bash
 # Linux / macOS
 export CLAUDE_CODE_OAUTH_TOKEN="$(claude setup-token)"
-node host/index.mjs
-```
+npm run hello
 
-```powershell
 # Windows (PowerShell)
 $env:CLAUDE_CODE_OAUTH_TOKEN = (claude setup-token)
-node host/index.mjs
+npm run hello
 ```
 
-Open [http://localhost:3000/chat](http://localhost:3000/chat) — your agent is live.
+**Step 4 — Start the full agent (pick one):**
 
-#### With Docker (VM)
+| Mode | Command | Chat URL |
+|---|---|---|
+| **Local** (no Docker) | `npm run host` | http://localhost:3000/chat |
+| **Docker VM** | `docker compose up --build` | http://localhost:3000/chat |
+| **Docker Azure** | `docker compose -f docker-compose.azure.yml up --build` | http://localhost:7071/api/chat |
+
+For Docker modes, pass the token first:
 
 ```bash
-CLAUDE_CODE_OAUTH_TOKEN=$(claude setup-token) docker compose up -d --build
+# Linux / macOS
+CLAUDE_CODE_OAUTH_TOKEN=$(claude setup-token) docker compose up --build
+
+# Windows (PowerShell)
+$env:CLAUDE_CODE_OAUTH_TOKEN = (claude setup-token); docker compose up --build
 ```
-
-Open [http://localhost:3000/chat](http://localhost:3000/chat).
-
-#### With Docker (Azure Functions)
-
-```bash
-CLAUDE_CODE_OAUTH_TOKEN=$(claude setup-token) docker compose -f docker-compose.azure.yml up -d --build
-```
-
-Open [http://localhost:7071/api/chat](http://localhost:7071/api/chat).
 
 #### Compare the two Docker modes
 
