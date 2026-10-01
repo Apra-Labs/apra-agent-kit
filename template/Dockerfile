@@ -22,14 +22,6 @@ RUN sed -i 's/\r$//' /usr/local/bin/docker-entrypoint.sh && chmod +x /usr/local/
 
 COPY . .
 
-# The published @apralabs/apra-fleet has an internal file: dependency that npm
-# hoists incorrectly — the sub-packages land but the parent doesn't. Copy the
-# working global install into the local tree (not a symlink — Docker Desktop
-# on Windows drops symlinks across overlay layers).
-RUN mkdir -p node_modules/@apralabs \
-  && rm -rf node_modules/@apralabs/apra-fleet \
-  && cp -a /usr/local/lib/node_modules/@apralabs/apra-fleet node_modules/@apralabs/apra-fleet
-
 EXPOSE 3000
 
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]

@@ -13,6 +13,15 @@ fi
 echo "[entrypoint] linking @apralabs packages..."
 node -e "import('./transport/ensure-apralabs.mjs').then(m => m.ensureApralabs())" 2>/dev/null || true
 
+# The published @apralabs/apra-fleet has an internal file: dependency that npm
+# hoists incorrectly — the parent package is missing from local node_modules.
+# Copy the working global install so workflow imports resolve.
+if [ ! -d node_modules/@apralabs/apra-fleet ]; then
+  mkdir -p node_modules/@apralabs
+  cp -a "$(npm root -g)/@apralabs/apra-fleet" node_modules/@apralabs/apra-fleet
+  echo "[entrypoint] copied global @apralabs/apra-fleet into local node_modules"
+fi
+
 # Fleet skips provisionLlmAuth for local members — it assumes the host's
 # login session is available. In Docker there is no host session, so we wrap
 # the claude binary to inject the token only when claude is actually called.
