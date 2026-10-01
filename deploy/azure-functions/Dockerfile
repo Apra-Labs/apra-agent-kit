@@ -31,7 +31,7 @@ RUN node -e "import('./transport/ensure-apralabs.mjs').then(m => m.ensureApralab
 
 # Provision Fleet auth from env at startup, then hand off to the Functions host.
 COPY deploy/azure-functions/entrypoint.sh /usr/local/bin/agent-entrypoint.sh
-RUN chmod +x /usr/local/bin/agent-entrypoint.sh
+RUN sed -i 's/\r$//' /usr/local/bin/agent-entrypoint.sh && chmod +x /usr/local/bin/agent-entrypoint.sh
 
 ENTRYPOINT ["/usr/local/bin/agent-entrypoint.sh"]
 CMD ["/opt/startup/start_nonappservice.sh"]
