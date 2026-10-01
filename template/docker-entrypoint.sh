@@ -8,15 +8,16 @@ if [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
   apra-fleet auth --oauth "$CLAUDE_CODE_OAUTH_TOKEN" 2>/dev/null || true
 fi
 
-# The published @apralabs/apra-fleet has a broken file: dependency —
-# npm hoists sub-packages but drops the parent. Copy from global.
-if [ ! -d node_modules/@apralabs/apra-fleet ]; then
-  echo "[entrypoint] @apralabs/apra-fleet missing, copying from global..."
-  mkdir -p node_modules/@apralabs
-  cp -a "$(npm root -g)/@apralabs/apra-fleet" node_modules/@apralabs/apra-fleet
-  echo "[entrypoint] copied @apralabs/apra-fleet"
+# The published @apralabs/apra-fleet has a broken file: dependency and
+# Docker Desktop on Windows can lose directories across overlay layers.
+# Always copy from the working global install to guarantee it exists.
+mkdir -p node_modules/@apralabs
+rm -rf node_modules/@apralabs/apra-fleet
+cp -a "$(npm root -g)/@apralabs/apra-fleet" node_modules/@apralabs/apra-fleet
+if [ -d node_modules/@apralabs/apra-fleet ]; then
+  echo "[entrypoint] @apralabs/apra-fleet ready"
 else
-  echo "[entrypoint] @apralabs/apra-fleet already present"
+  echo "[entrypoint] WARNING: @apralabs/apra-fleet copy failed!"
 fi
 
 echo "[entrypoint] exec: $*"
