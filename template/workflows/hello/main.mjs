@@ -37,7 +37,16 @@ function isMainModule() {
 if (isMainModule()) {
   try {
     const result = await runHello({ name: process.argv[2] });
-    console.log(`\n  ${result.greeting}\n  (host: ${result.host}, who: ${result.who})\n`);
+    if (result && typeof result === 'object' && result.greeting) {
+      console.log(`\n  ${result.greeting}\n  (host: ${result.host}, who: ${result.who})\n`);
+    } else {
+      const parsed = typeof result === 'string' ? (() => { try { return JSON.parse(result); } catch { return null; } })() : null;
+      if (parsed?.greeting) {
+        console.log(`\n  ${parsed.greeting}\n  (host: ${parsed.host}, who: ${parsed.who})\n`);
+      } else {
+        console.log(typeof result === 'string' ? result : JSON.stringify(result, null, 2));
+      }
+    }
     process.exit(0);
   } catch (err) {
     console.error(err?.message ?? err);

@@ -18,5 +18,5 @@ export async function main(context) {
     { member_name: 'doer' },
   );
 
-  return { who, host, greeting };
+  return { answer: greeting, who, host, greeting };
 }
