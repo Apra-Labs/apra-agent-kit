@@ -11,6 +11,7 @@ function toNcrontab(cron) {
 
 export function createDurableScheduler(config, { jobs, toolRegistry, logger }) {
   let started = false;
+  let activeSchedules = [];
 
   async function tick(schedule, timer) {
     const tickTime = timer?.scheduleStatus?.last ?? new Date().toISOString();
@@ -43,9 +44,9 @@ export function createDurableScheduler(config, { jobs, toolRegistry, logger }) {
   return {
     async start() {
       if (started) return;
-      validateSchedules(config.schedules, toolRegistry);
+      activeSchedules = validateSchedules(config.schedules, toolRegistry, { logger });
       started = true;
-      logger.info?.(`[scheduler] started (durable) with ${config.schedules.length} schedule(s)`);
+      logger.info?.(`[scheduler] started (durable) with ${activeSchedules.length} schedule(s)`);
     },
 
     async stop() {
@@ -53,8 +54,9 @@ export function createDurableScheduler(config, { jobs, toolRegistry, logger }) {
     },
 
     registerTimerFunctions(app, { extraInputs = [], getClient, setClient } = {}) {
-      validateSchedules(config.schedules, toolRegistry);
-      for (const schedule of config.schedules) {
+      const valid = validateSchedules(config.schedules, toolRegistry, { logger });
+      activeSchedules = valid;
+      for (const schedule of valid) {
         const timerConfig = {
           schedule: toNcrontab(schedule.cron),
           extraInputs,
@@ -73,7 +75,7 @@ export function createDurableScheduler(config, { jobs, toolRegistry, logger }) {
     },
 
     getSchedules() {
-      return config.schedules.map(schedule => {
+      return activeSchedules.map(schedule => {
         let nextRun = null;
         try {
           const cron = new Cron(schedule.cron, { timezone: schedule.timezone });

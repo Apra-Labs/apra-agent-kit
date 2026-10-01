@@ -82,11 +82,12 @@ test('timer handler submits job on fire', async () => {
   assert.equal(jobs.submitted[0].metadata.schedule.name, 'test');
 });
 
-test('getSchedules returns schedule info', () => {
+test('getSchedules returns schedule info after start', async () => {
   const scheduler = createDurableScheduler(
     { enabled: true, schedules: [{ name: 'test', workflow: 'city-briefing', args: {}, cron: '0 9 * * *', timezone: 'Asia/Tokyo', overlap: 'queue' }] },
     { jobs: mockJobs(), toolRegistry: REGISTRY, logger: { info() {}, warn() {} } },
   );
+  await scheduler.start();
   const list = scheduler.getSchedules();
   assert.equal(list.length, 1);
   assert.equal(list[0].name, 'test');

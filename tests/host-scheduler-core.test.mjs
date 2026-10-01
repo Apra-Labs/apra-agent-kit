@@ -27,10 +27,12 @@ const REGISTRY = [
   { name: 'weather', routing: null },
 ];
 
-test('validateSchedules accepts valid schedule', () => {
-  assert.doesNotThrow(() => validateSchedules([
+test('validateSchedules accepts valid schedule and returns it', () => {
+  const result = validateSchedules([
     { name: 'test', workflow: 'city-briefing', cron: '0 9 * * *', timezone: 'UTC' },
-  ], REGISTRY));
+  ], REGISTRY);
+  assert.equal(result.length, 1);
+  assert.equal(result[0].name, 'test');
 });
 
 test('validateSchedules rejects unknown workflow', () => {
@@ -39,10 +41,15 @@ test('validateSchedules rejects unknown workflow', () => {
   ], REGISTRY), /unknown workflow/);
 });
 
-test('validateSchedules rejects workflow without routing', () => {
-  assert.throws(() => validateSchedules([
+test('validateSchedules skips non-routable workflow with warning', () => {
+  const warnings = [];
+  const logger = { warn(msg) { warnings.push(msg); } };
+  const result = validateSchedules([
     { name: 'test', workflow: 'weather', cron: '0 9 * * *', timezone: 'UTC' },
-  ], REGISTRY), /not a routable workflow/);
+  ], REGISTRY, { logger });
+  assert.equal(result.length, 0);
+  assert.equal(warnings.length, 1);
+  assert.ok(warnings[0].includes('not routable'));
 });
 
 test('validateSchedules rejects invalid cron', () => {

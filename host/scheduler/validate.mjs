@@ -18,11 +18,13 @@ function isValidCron(expr) {
   }
 }
 
-export function validateSchedules(schedules, toolRegistry) {
+export function validateSchedules(schedules, toolRegistry, { logger } = {}) {
   const names = new Set();
   const routableWorkflows = new Set(
     toolRegistry.filter(t => t.routing).map(t => t.name),
   );
+
+  const valid = [];
 
   for (const s of schedules) {
     if (!s.name || typeof s.name !== 'string') {
@@ -40,7 +42,8 @@ export function validateSchedules(schedules, toolRegistry) {
       throw new Error(`schedule "${s.name}" references unknown workflow "${s.workflow}"`);
     }
     if (!routableWorkflows.has(s.workflow)) {
-      throw new Error(`schedule "${s.name}": "${s.workflow}" is not a routable workflow (missing routing config)`);
+      logger?.warn?.(`[scheduler] skipping schedule "${s.name}": workflow "${s.workflow}" is not routable (missing routing config)`);
+      continue;
     }
 
     if (!s.cron || typeof s.cron !== 'string') {
@@ -56,5 +59,9 @@ export function validateSchedules(schedules, toolRegistry) {
     if (!isValidTimezone(s.timezone)) {
       throw new Error(`schedule "${s.name}" has invalid timezone "${s.timezone}"`);
     }
+
+    valid.push(s);
   }
+
+  return valid;
 }
