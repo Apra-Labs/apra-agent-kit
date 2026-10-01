@@ -36,7 +36,8 @@ function isMainModule() {
 
 if (isMainModule()) {
   try {
-    console.log(JSON.stringify(await runHello({ name: process.argv[2] }), null, 2));
+    const result = await runHello({ name: process.argv[2] });
+    console.log(`\n  ${result.greeting}\n  (host: ${result.host}, who: ${result.who})\n`);
     process.exit(0);
   } catch (err) {
     console.error(err?.message ?? err);
