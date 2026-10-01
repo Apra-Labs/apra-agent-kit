@@ -89,16 +89,8 @@ export async function startHost({
     console.warn(`[host] using scripted fleet from ${env.FLEET_MOCK_SCRIPT} — no LLM calls will be made`);
   }
   if (!api) {
-    const { readFileSync } = await import('node:fs');
-    let isNpmDep = false;
-    try {
-      const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
-      isNpmDep = !!pkg.dependencies?.['@apralabs/apra-fleet'];
-    } catch {}
-    if (!isNpmDep) {
-      const { ensureApralabs } = await import('../transport/ensure-apralabs.mjs');
-      ensureApralabs();
-    }
+    const { ensureApralabs } = await import('../transport/ensure-apralabs.mjs');
+    ensureApralabs();
     const { spawnFleet } = await import('../transport/stdio-fleet.mjs');
     const fleet = await spawnFleet({ env });
     api = fleet.fleetApi;
