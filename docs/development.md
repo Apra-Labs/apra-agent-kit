@@ -306,3 +306,25 @@ generated project, which receives it as `scripts/doctor.mjs`.
 When you add a framework file that generated projects need, add its path to
 `files` and to `PUBLISHED_DIRS` in `create/copy.mjs`. `tests/create-e2e.test.mjs`
 generates a project and runs its suite, so a missed path fails CI.
+
+### Testing a generated project locally (without publishing)
+
+You can generate a project from your working tree and Docker-build it without
+publishing to npm first:
+
+```bash
+node bin/create.mjs ../test-agent --no-install
+cd ../test-agent
+docker build -t test-agent .
+docker run -p 3000:3000 \
+  -e CLAUDE_CODE_OAUTH_TOKEN="$(claude setup-token)" \
+  test-agent
+```
+
+`--no-install` skips the local `npm install` and `git init` steps — the
+Dockerfile runs its own `npm install` inside the container from the npm
+registry, which is what you want to verify. Open `http://localhost:3000/chat`
+to confirm the host starts and the chat UI loads.
+
+To iterate, delete `../test-agent` and re-generate. Add `--force` to
+overwrite an existing directory without deleting first.

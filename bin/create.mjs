@@ -45,7 +45,7 @@ function isEmptyDir(dir) {
 }
 
 function run(command, args, { cwd }) {
-  execFileSync(command, args, { cwd, stdio: 'inherit' });
+  execFileSync(command, args, { cwd, stdio: 'inherit', shell: process.platform === 'win32' });
 }
 
 export async function generate(options, io = { write: console.log }) {
@@ -71,7 +71,11 @@ export async function generate(options, io = { write: console.log }) {
   let written = [];
 
   try {
-    write(`\n  Creating ${name}…`);
+    const kitVersion = JSON.parse(
+      fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8'),
+    ).version;
+
+    write(`\n  Creating ${name}… (agent-kit v${kitVersion})`);
     fs.mkdirSync(target, { recursive: true });
 
     for (const rel of PUBLISHED_DIRS) {
@@ -97,9 +101,6 @@ export async function generate(options, io = { write: console.log }) {
       { overwrite: true },
     );
 
-    const kitVersion = JSON.parse(
-      fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8'),
-    ).version;
     substitute(target, name, kitVersion);
   } catch (err) {
     if (createdRoot) fs.rmSync(target, { recursive: true, force: true });
@@ -113,8 +114,9 @@ export async function generate(options, io = { write: console.log }) {
     try {
       run('npm', ['install'], { cwd: target });
       write('  ✓ npm install');
-    } catch {
-      write('  ! npm install failed — your files are fine. Run it yourself when ready.');
+    } catch (err) {
+      const hint = err?.status != null ? ` (exit ${err.status})` : '';
+      write(`  ! npm install failed${hint} — your files are fine. Run \`npm install\` yourself to see the full error.`);
     }
 
     const missing = checks.filter((c) => !c.ok).map((c) => c.id);
@@ -153,6 +155,32 @@ export async function generate(options, io = { write: console.log }) {
 
     checks = runChecks(createProbes({ cwd: target }));
   }
+
+  // Summarise what the template enables so the user knows what they get.
+  try {
+    const configPath = path.join(target, 'host.config.mjs');
+    if (fs.existsSync(configPath)) {
+      const configMod = await import(`file://${configPath.replace(/\\/g, '/')}`);
+      const modules = configMod.default?.modules ?? {};
+      const enabled = [];
+      if (modules.runLoop?.enabled)    enabled.push({ name: 'run-loop', hint: `autonomous agent execution via ${modules.runLoop.strategy ?? 'plan-execute'}` });
+      if (modules.budgets?.enabled)    enabled.push({ name: 'budgets', hint: `cost/token/time limits per task` });
+      if (modules.guardrails?.enabled) enabled.push({ name: 'guardrails', hint: `tool-level policy gates (default: ${modules.guardrails.defaultPolicy ?? 'allow'})` });
+      if (modules.dispatch?.enabled)   enabled.push({ name: 'dispatch', hint: `async job queue backed by ${modules.dispatch.store?.kind ?? 'memory'}` });
+      if (modules.router?.enabled)     enabled.push({ name: 'router', hint: `classifies tasks into workflows or strategies` });
+      if (modules.chat?.enabled)       enabled.push({ name: 'chat', hint: `web UI at /chat` });
+      if (modules.scheduler?.enabled) {
+        const scheds = modules.scheduler.schedules ?? [];
+        const detail = scheds.map(s => `${s.name} → ${s.workflow} (${s.cron})`).join(', ');
+        enabled.push({ name: 'scheduler', hint: detail || 'no schedules configured' });
+      }
+      if (modules.notify?.sse?.enabled) enabled.push({ name: 'SSE', hint: `real-time job progress via Server-Sent Events` });
+      if (enabled.length > 0) {
+        write('\n  Enabled modules:');
+        for (const m of enabled) write(`    ✓ ${m.name.padEnd(12)} ${m.hint}`);
+      }
+    }
+  } catch { /* best-effort — a parse failure here must not break the generator */ }
 
   const remaining = checks.filter((c) => !c.ok);
   if (remaining.length > 0) {
