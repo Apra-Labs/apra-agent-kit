@@ -16,6 +16,12 @@ export const defaultRegistry = [
     inputSchema: z.object({
       name: z.string().optional().describe('Who to greet. Defaults to "world".'),
     }),
+    routing: {
+      description: 'Greet someone by name using an agent.',
+      args: {
+        name: { extract: 'the name of the person to greet' },
+      },
+    },
     async run({ fleetApi, args, signal, reportPhase, workspace }) {
       return await runHello({ fleetApi, workspace, name: args.name, signal, reportPhase });
     },

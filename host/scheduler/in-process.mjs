@@ -37,12 +37,15 @@ export function createInProcessScheduler(config, { jobs, toolRegistry, logger })
   return {
     async start() {
       if (started) return;
-      validateSchedules(config.schedules, toolRegistry);
-      for (const schedule of config.schedules) {
+      const valid = validateSchedules(config.schedules, toolRegistry, { logger });
+      for (const schedule of valid) {
         const job = new Cron(schedule.cron, { timezone: schedule.timezone }, () => tick(schedule));
         crons.push({ schedule, job });
       }
       started = true;
+      for (const { schedule, job } of crons) {
+        logger.info?.(`[scheduler]   ${schedule.name} → ${schedule.workflow} (${schedule.cron} ${schedule.timezone}, next: ${job.nextRun()?.toISOString() ?? 'none'})`);
+      }
       logger.info?.(`[scheduler] started ${crons.length} schedule(s)`);
     },
 

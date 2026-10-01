@@ -11,12 +11,12 @@ export async function main(context) {
   // 'doer' and 'reviewer' are reserved keywords. The kit resolves them to the
   // worker pair this run leased. Never name a member directly — doing so
   // collides with other runs.
-  const host = await command('hostname', { member_name: 'doer' });
+  const host = (await command('hostname', { member_name: 'doer' })).trim();
 
   const greeting = await agent(
     `Say hello to ${who} in one short, friendly sentence.`,
     { member_name: 'doer' },
   );
 
-  return { who, host, greeting };
+  return { answer: greeting, who, host, greeting };
 }
