@@ -43,6 +43,9 @@ export function createInProcessScheduler(config, { jobs, toolRegistry, logger })
         crons.push({ schedule, job });
       }
       started = true;
+      for (const { schedule, job } of crons) {
+        logger.info?.(`[scheduler]   ${schedule.name} → ${schedule.workflow} (${schedule.cron} ${schedule.timezone}, next: ${job.nextRun()?.toISOString() ?? 'none'})`);
+      }
       logger.info?.(`[scheduler] started ${crons.length} schedule(s)`);
     },
 

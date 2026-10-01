@@ -46,6 +46,9 @@ export function createDurableScheduler(config, { jobs, toolRegistry, logger }) {
       if (started) return;
       activeSchedules = validateSchedules(config.schedules, toolRegistry, { logger });
       started = true;
+      for (const s of activeSchedules) {
+        logger.info?.(`[scheduler]   ${s.name} → ${s.workflow} (${s.cron} ${s.timezone})`);
+      }
       logger.info?.(`[scheduler] started (durable) with ${activeSchedules.length} schedule(s)`);
     },
 
