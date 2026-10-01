@@ -11,45 +11,17 @@ const engineScript = path.join(here, 'hello.js');
 
 export const selfExecuting = true;
 
-function extractText(raw) {
-  if (typeof raw === 'string') return raw;
-  return (raw?.content ?? []).map(p => p.text ?? '').join('');
-}
-
-async function runWithEngine(fleetApi, opts) {
-  const { FleetWorkflow } = await import('@apralabs/apra-fleet/packages/apra-fleet-workflow/src/workflow/index.mjs');
-  const { WorkflowEngine } = await import('@apralabs/apra-fleet/packages/apra-fleet-workflow/src/workflow/engine.mjs');
-  const workflow = new FleetWorkflow(fleetApi);
-  const engine = new WorkflowEngine(workflow);
-  return await engine.executeFile(engineScript, { fleetApi, ...opts });
-}
-
-async function runDirect(fleetApi, opts) {
-  const { main } = await import('./hello.js');
-  return main({
-    command: async (cmd, o = {}) => extractText(
-      await fleetApi.executeCommand({ member_name: o.member_name ?? 'doer', command: cmd }),
-    ),
-    agent: async (prompt, o = {}) => extractText(
-      await fleetApi.executePrompt({ member_name: o.member_name ?? 'doer', prompt }),
-    ),
-    log: (msg) => console.log(`[Workflow Log] ${msg}`),
-    args: { name: opts.name },
-  });
-}
-
 export async function runHello({ fleetApi, workspace, signal, reportPhase, name } = {}) {
   if (!fleetApi) {
+    // CLI run: spawn Fleet, take one lease, run, release.
     return withStandaloneLease((ctx) => runHello({ ...ctx, reportPhase, name }));
   }
-  try {
-    return await runWithEngine(fleetApi, { workspace, signal, reportPhase, name });
-  } catch (err) {
-    if (err?.code === 'ERR_MODULE_NOT_FOUND') {
-      return await runDirect(fleetApi, { workspace, signal, reportPhase, name });
-    }
-    throw err;
-  }
+  const { FleetWorkflow } = await import('@apralabs/apra-fleet/packages/apra-fleet-workflow/src/workflow/index.mjs');
+  const { WorkflowEngine } = await import('@apralabs/apra-fleet/packages/apra-fleet-workflow/src/workflow/engine.mjs');
+
+  const workflow = new FleetWorkflow(fleetApi);
+  const engine = new WorkflowEngine(workflow);
+  return await engine.executeFile(engineScript, { fleetApi, workspace, signal, reportPhase, name });
 }
 
 function isMainModule() {
@@ -68,12 +40,7 @@ if (isMainModule()) {
     if (result && typeof result === 'object' && result.greeting) {
       console.log(`\n  ${result.greeting}\n  (host: ${result.host}, who: ${result.who})\n`);
     } else {
-      const parsed = typeof result === 'string' ? (() => { try { return JSON.parse(result); } catch { return null; } })() : null;
-      if (parsed?.greeting) {
-        console.log(`\n  ${parsed.greeting}\n  (host: ${parsed.host}, who: ${parsed.who})\n`);
-      } else {
-        console.log(typeof result === 'string' ? result : JSON.stringify(result, null, 2));
-      }
+      console.log(typeof result === 'string' ? result : JSON.stringify(result, null, 2));
     }
     process.exit(0);
   } catch (err) {
