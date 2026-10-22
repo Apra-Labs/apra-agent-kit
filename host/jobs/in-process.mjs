@@ -128,6 +128,7 @@ export function createInProcessJobs({
         budget: state.budget,
         interruptions: state.interruptions,
         identity: state.identity,
+        strategy: state.strategy ?? null,
         recalledFacts: state.recalledFacts ?? null,
         conversation: state.conversation ?? null,
       };
@@ -273,6 +274,11 @@ export function createInProcessJobs({
       // question outstanding.
       if (outcome.status === 'paused' && !reason) {
         try {
+          const batch = outcome.batch;
+          const qCount = batch?.questions?.length ?? 0;
+          const askedBy = batch?.askedBy ?? 'unknown';
+          const kinds = (batch?.questions ?? []).map(q => q.kind).join(', ');
+          logger.info?.(`[jobs] job ${jobId} paused — ${qCount} question(s) asked by ${askedBy} [${kinds}], batchId=${batch?.batchId ?? 'none'}`);
           await park(jobId, record, outcome, askUser);
         } catch (err) {
           // The question was never stored, so nobody will ever answer it.
@@ -472,6 +478,8 @@ export function createInProcessJobs({
       await store.appendEvent(jobId, answerReceivedEntry(jobId, {
         batchId: plan.batch.batchId, answers: plan.answers, answeredBy: plan.answeredBy,
       }, now()));
+
+      logger.info?.(`[jobs] job ${jobId} input received — batchId=${plan.batch.batchId}, answeredBy=${plan.answeredBy ?? 'anonymous'}, fields=[${Object.keys(plan.answers).join(', ')}]`);
 
       // Back to `queued`, not straight to `processing`: no worker holds this
       // job, and `store.claim()` is what stops two workers taking it. Going

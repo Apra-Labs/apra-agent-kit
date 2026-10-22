@@ -19,8 +19,8 @@ const aBatch = () => ({
   askedBy: 'guardrail',
   questions: [{ fieldId: 'proceed', kind: 'approval', prompt: 'Book the flight?', required: true }],
   askedAt: '2026-09-30T09:00:00.000Z',
-  staleAfter: '2026-10-01T09:00:00.000Z',
-  expiresAt: '2026-10-07T09:00:00.000Z',
+  staleAfter: '2027-10-01T09:00:00.000Z',
+  expiresAt: '2027-10-07T09:00:00.000Z',
 });
 
 /**

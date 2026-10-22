@@ -9,7 +9,7 @@ import { runDestinationOverview } from '../workflows/destination-overview/main.m
 import { runTravelPrep } from '../workflows/travel-prep/main.mjs';
 import { runRouteCheck } from '../workflows/route-check/main.mjs';
 import { runTripPlanner } from '../workflows/trip-planner/main.mjs';
-import { humanInputDemoTools } from './human-input-tools.mjs';
+import { humanInputDemoTools, askUserTool } from './human-input-tools.mjs';
 
 // Routable workflows. To expose a new tool, append an entry here — no changes to
 // server.mjs or http.mjs are needed. `description` is read by the connected
@@ -162,13 +162,16 @@ export const defaultRegistry = [
     description:
       'Full trip plan: destination overview, weather, forecast, attractions, holidays, travel advisory, currency, route, ' +
       'and a composed day-by-day itinerary with budget. Uses nine tools plus one agent compose call.',
-    routing: {
-      description: 'Full trip plan with itinerary, weather, attractions, budget, and practical tips for a destination',
-      args: {
-        destination: { extract: 'destination city or region from the goal' },
-        from: { extract: 'origin city from the goal (if mentioned)' },
-      },
-    },
+    // routing disabled: trip queries should go through plan-execute so the
+    // human-input demo tools (choose-destination, trip-preferences, confirm-itinerary)
+    // can ask the traveller questions before research begins.
+    // routing: {
+    //   description: 'Full trip plan with itinerary, weather, attractions, budget, and practical tips for a destination',
+    //   args: {
+    //     destination: { extract: 'destination city or region from the goal' },
+    //     from: { extract: 'origin city from the goal (if mentioned)' },
+    //   },
+    // },
     inputSchema: z.object({
       destination: z.string().optional().describe('Destination city or region. Defaults to London.'),
       from: z.string().optional().describe('Origin city for route calculation. Optional.'),
@@ -439,6 +442,8 @@ export const defaultRegistry = [
       return parseToolOutput(raw);
     },
   },
+  // Generic ask-user tool — lets the LLM compose its own questions dynamically.
+  askUserTool,
   // Demo tools for durable human input. Delete these when adopting the kit -
   // they exist so the travel agent has something to ask about, since every
   // other tool here is read-only.

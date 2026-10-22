@@ -335,6 +335,8 @@ export function createDurableJobs({ client, getClient, config, notifier = null, 
         },
       });
 
+      logger.info?.(`[durable] job ${jobId} input received — batchId=${plan.batch.batchId}, answeredBy=${plan.answeredBy ?? 'anonymous'}, fields=[${Object.keys(plan.answers).join(', ')}]`);
+
       if (notifier) {
         try { await notifier.publish(inputResolvedEvent(jobId, { batchId: plan.batch.batchId, resolution: 'answered' }, now()), { callbackUrl: inst?.input?.callbackUrl ?? null }); }
         catch (err) { logger.warn(`[durable] notifier error: ${err?.message ?? err}`); }
