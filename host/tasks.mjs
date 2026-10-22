@@ -315,6 +315,7 @@ export async function executeHostedTask(task, {
         onProgress,
         workspace,
         memories,
+        askUser,
       });
     } else {
       result = await runTask(fullTask, {
