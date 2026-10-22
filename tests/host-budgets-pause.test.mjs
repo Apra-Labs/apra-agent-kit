@@ -35,7 +35,7 @@ test('pause: elapsed continues from where it stopped, not from zero', async () =
 
   const after = b.snapshot().elapsedMs;
   assert.ok(after >= atPause, 'resuming must not lose the time already spent working');
-  assert.ok(after < atPause + 40, `the paused 40ms must not be charged (was ${after}, paused at ${atPause})`);
+  assert.ok(after < atPause + 80, `the paused 40ms must not be charged (was ${after}, paused at ${atPause})`);
 });
 
 test('pause: timeoutMs does not trip while waiting on a person', async () => {

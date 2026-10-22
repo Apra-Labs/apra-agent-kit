@@ -8,7 +8,7 @@ const engineScript = path.join(here, 'trip-planner.js');
 
 export const selfExecuting = true;
 
-export async function runTripPlanner({ fleetApi, workspace, destination, from, country, days, signal, reportPhase, memories } = {}) {
+export async function runTripPlanner({ fleetApi, workspace, destination, from, country, days, signal, reportPhase, memories, preferences } = {}) {
   ensureApralabs();
   if (!fleetApi) {
     return withStandaloneLease((ctx) => runTripPlanner({ ...ctx, destination, from, country, days, reportPhase }));
@@ -28,6 +28,7 @@ export async function runTripPlanner({ fleetApi, workspace, destination, from, c
     signal,
     reportPhase,
     memories: memories ?? [],
+    preferences: preferences ?? null,
   });
 }
 

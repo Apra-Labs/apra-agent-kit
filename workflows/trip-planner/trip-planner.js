@@ -153,8 +153,20 @@ export async function main(context) {
   phase('compose');
   await reportPhase(`composing trip plan for ${destination}`);
   const memLines = (args.memories ?? []).map(m => `- [${m.kind}] ${m.text}`).join('\n');
+  const prefs = args.preferences;
+  const prefsLines = prefs ? [
+    '',
+    'Traveller preferences (tailor the plan to these):',
+    prefs.dates ? `- Dates/duration: ${prefs.dates}` : '',
+    prefs.travellers ? `- Travellers: ${prefs.travellers}` : '',
+    prefs.budget ? `- Budget: ${typeof prefs.budget === 'object' ? prefs.budget.other : prefs.budget}` : '',
+    prefs.interests ? `- Interests: ${prefs.interests}` : '',
+    prefs.transport ? `- Transport: ${prefs.transport}` : '',
+    prefs.avoid ? `- Must see / avoid: ${prefs.avoid}` : '',
+  ].filter(Boolean).join('\n') : '';
   const prompt = [
     `You are a knowledgeable travel planning specialist. Given the tool data below, compose a complete trip plan for ${destination}${from ? ` from ${from}` : ''}.`,
+    prefsLines,
     '',
     'Include:',
     '1. Trip overview (destination highlights, best time to visit)',

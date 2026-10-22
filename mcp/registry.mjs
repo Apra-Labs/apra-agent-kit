@@ -9,7 +9,7 @@ import { runDestinationOverview } from '../workflows/destination-overview/main.m
 import { runTravelPrep } from '../workflows/travel-prep/main.mjs';
 import { runRouteCheck } from '../workflows/route-check/main.mjs';
 import { runTripPlanner } from '../workflows/trip-planner/main.mjs';
-import { humanInputDemoTools } from './human-input-tools.mjs';
+import { humanInputDemoTools, askUserTool } from './human-input-tools.mjs';
 
 // Routable workflows. To expose a new tool, append an entry here — no changes to
 // server.mjs or http.mjs are needed. `description` is read by the connected
@@ -176,10 +176,32 @@ export const defaultRegistry = [
       days: z.number().optional().describe('Number of forecast days. Defaults to 7.'),
     }),
     annotations: { readOnlyHint: true, idempotentHint: false },
-    async run({ fleetApi, args, signal, reportPhase, workspace, memories }) {
+    async run({ fleetApi, args, signal, reportPhase, workspace, memories, askUser }) {
+      let preferences = null;
+      if (typeof askUser === 'function') {
+        const dest = args.destination || 'your destination';
+        const answer = await askUser({
+          askedBy: 'tool',
+          askedByDetail: 'trip-planner',
+          questions: [
+            { fieldId: 'dates', kind: 'text', prompt: `When do you want to visit ${dest}, and for how many days?`, required: true },
+            { fieldId: 'travellers', kind: 'text', prompt: 'How many people are travelling?', required: true },
+            { fieldId: 'budget', kind: 'pick_one_or_text', prompt: 'What is your daily budget per person (excluding flights)?', options: [
+              { value: 'shoestring', label: 'Shoestring — hostels and street food' },
+              { value: 'mid', label: 'Mid-range — decent hotels, eat out properly' },
+              { value: 'premium', label: 'Premium — comfort matters more than cost' },
+            ], allowOther: true, required: true },
+            { fieldId: 'interests', kind: 'text', prompt: 'What should the trip focus on (e.g. food, history, nature, adventure, beaches, shopping)?', required: true },
+            { fieldId: 'transport', kind: 'text', prompt: `How are you getting to ${dest} (driving, flight, train)? Where from?`, required: false },
+            { fieldId: 'avoid', kind: 'text', prompt: 'Anything you want to avoid or must see?', required: false },
+          ],
+        });
+        preferences = answer.answers;
+      }
       const result = await runTripPlanner({
         fleetApi, workspace, destination: args.destination, from: args.from,
         country: args.country, days: args.days, signal, reportPhase, memories,
+        preferences,
       });
       return `trip plan completed: ${JSON.stringify(result)}`;
     },
@@ -439,6 +461,8 @@ export const defaultRegistry = [
       return parseToolOutput(raw);
     },
   },
+  // Generic ask-user tool — lets the LLM compose its own questions dynamically.
+  askUserTool,
   // Demo tools for durable human input. Delete these when adopting the kit -
   // they exist so the travel agent has something to ask about, since every
   // other tool here is read-only.

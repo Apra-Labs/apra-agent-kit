@@ -188,7 +188,7 @@ export async function executeHostedTask(task, {
       else lease.signal.addEventListener('abort', () => forwardAbort(lease.signal.reason), { once: true });
     }
 
-    let strategy = task.strategy ?? null;
+    let strategy = task.strategy ?? resumeFrom?.strategy ?? null;
     let workflowName = null;
     let workflowArgs = null;
     let routedTo = null;
@@ -315,6 +315,7 @@ export async function executeHostedTask(task, {
         onProgress,
         workspace,
         memories,
+        askUser,
       });
     } else {
       result = await runTask(fullTask, {

@@ -98,6 +98,11 @@ export function createRunTaskActivity({ getClient, pollMs = 2000, getContext = g
       // orchestration will rebuild from - which on Azure is the *only* copy,
       // because there is no store beside the task hub.
       if (run.status === 'paused' && !controller.signal.aborted) {
+        const batch = run.batch;
+        const qCount = batch?.questions?.length ?? 0;
+        const askedBy = batch?.askedBy ?? 'unknown';
+        const kinds = (batch?.questions ?? []).map(q => q.kind).join(', ');
+        logger.info?.(`[activity] job ${jobId} paused — ${qCount} question(s) asked by ${askedBy} [${kinds}], batchId=${run.batchId ?? 'none'}`);
         // The state goes to the memory store; the orchestration output carries
         // only a key. Durable caps that output at 16 KB, and a long run's state
         // does not fit — which is why #63 had to ship a pause_too_large failure.

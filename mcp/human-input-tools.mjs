@@ -45,6 +45,68 @@ const AMBIGUOUS = {
   ],
 };
 
+// ---------------------------------------------------------------------------
+// Generic ask-user tool — the LLM composes the questions dynamically
+// ---------------------------------------------------------------------------
+
+export const askUserTool = {
+  name: 'ask-user',
+  description:
+    'Ask the person one or more questions and wait for their answers before continuing. ' +
+    'Use this whenever you need information you cannot determine from tools or context — ' +
+    'travel dates, group size, dietary needs, preferences, clarifications, or confirmation. ' +
+    'Compose the questions yourself based on what you actually need to know. ' +
+    'Each question can be a plain string (shown as a free-text field) or an object with kind/options for richer inputs.',
+  inputSchema: z.object({
+    questions: z.array(
+      z.union([
+        z.string().min(1).describe('A plain question string — shown as a free-text field'),
+        z.object({
+          fieldId: z.string().min(1).optional().describe('A short unique key, e.g. "dates". Auto-generated if omitted.'),
+          kind: z.enum(['text', 'pick_one', 'pick_many', 'pick_one_or_text', 'approval']).optional().default('text'),
+          prompt: z.string().min(1).describe('The question to show the person'),
+          options: z.array(z.object({
+            value: z.string().min(1),
+            label: z.string().min(1),
+          })).optional().describe('Choices for pick_one, pick_many, pick_one_or_text'),
+          allowOther: z.boolean().optional(),
+          required: z.boolean().optional().default(true),
+        }),
+      ]),
+    ).min(1).max(10).describe('The questions — plain strings or objects. Batch them into one call.'),
+  }),
+  annotations: { readOnlyHint: true, idempotentHint: false },
+  reversible: true,
+  timeout: 600_000,
+  tags: ['human-input'],
+
+  async run({ args, askUser }) {
+    if (typeof askUser !== 'function') {
+      return { asked: false, note: 'human input is not available in this context' };
+    }
+
+    const questions = args.questions.map((q, i) => {
+      if (typeof q === 'string') {
+        return { fieldId: `q${i}`, kind: 'text', prompt: q, required: true };
+      }
+      return { ...q, fieldId: q.fieldId || `q${i}`, kind: q.kind || 'text' };
+    });
+
+    const answer = await askUser({
+      askedBy: 'tool',
+      askedByDetail: 'ask-user',
+      questions,
+    });
+
+    return { asked: true, answers: answer.answers };
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Demo tools — hardcoded questions for the travel agent showcase.
+// Delete these when adopting the kit.
+// ---------------------------------------------------------------------------
+
 export const humanInputDemoTools = [
   {
     name: 'choose-destination',

@@ -167,7 +167,7 @@ function adaptReportPhase(onProgress) {
   return report;
 }
 
-export async function executeWorkflow(name, args, { fleetApi, toolRegistry, signal, onProgress, workspace, memories }) {
+export async function executeWorkflow(name, args, { fleetApi, toolRegistry, signal, onProgress, workspace, memories, askUser }) {
   const entry = toolRegistry.find(t => t.name === name && t.routing);
   if (!entry) {
     return { status: 'failed', result: { error: 'workflow_not_found', message: `Workflow "${name}" not found` }, history: [], budget: null };
@@ -181,6 +181,7 @@ export async function executeWorkflow(name, args, { fleetApi, toolRegistry, sign
     reportPhase,
     workspace,
     memories: memories ?? [],
+    askUser,
   });
   await reportPhase.complete();
 
