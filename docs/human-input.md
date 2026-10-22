@@ -226,6 +226,20 @@ on resume, punishing the run for having asked. Tokens and iterations already spe
 resumed run continues its budget rather than starting a fresh one, or it could pause and resume
 forever and never exhaust anything.
 
+### The strategy continues
+
+A resumed run stays on the strategy it was on when it paused. `executeHostedTask` reads the strategy
+from `resumeFrom` (which carries it from the checkpoint) before consulting the router:
+
+```js
+let strategy = task.strategy ?? resumeFrom?.strategy ?? null;
+```
+
+Without this, the router would re-classify the goal and could pick a different path — a
+`plan-execute` run that paused on step 1 could resume into a workflow, losing its plan and repeating
+work. The checkpoint records the strategy as `routedTo` when the run parks, and both
+`resumeContextFor` (in-process) and `planResume` (durable) propagate it into `resumeFrom.strategy`.
+
 ---
 
 ## The two deadlines
@@ -269,6 +283,78 @@ See `docs/specs/2026-09-24-durable-human-input-spec.md` for the full design, and
 
 ---
 
+## The `ask-user` tool — LLM-composed questions
+
+The demo tools (`choose-destination`, `trip-preferences`, `confirm-itinerary`) have hardcoded
+questions. They show the mechanics but every run asks the same thing.
+
+`ask-user` is a generic tool where the **LLM decides what to ask**. It sees the request, thinks
+about what information is missing, and composes questions as tool arguments:
+
+```js
+// The LLM calls ask-user with whatever questions it needs
+{
+  "tool": "ask-user",
+  "args": {
+    "questions": [
+      "What are your travel dates?",
+      "How many people are travelling?",
+      { "fieldId": "budget", "kind": "pick_one", "prompt": "Daily budget?", "options": [
+        { "value": "shoestring", "label": "Shoestring" },
+        { "value": "mid", "label": "Mid-range" },
+        { "value": "premium", "label": "Premium" }
+      ]}
+    ]
+  }
+}
+```
+
+Each question can be a **plain string** (becomes a free-text field) or a **structured object** with
+`kind`, `options`, `allowOther`, etc. The tool normalises both into the batch format that `askUser()`
+expects. Field IDs are auto-generated when omitted (`q0`, `q1`, …).
+
+This means:
+- Different destinations get different questions
+- A request that already specifies dates or budget doesn't get re-asked
+- A food tour might ask about dietary restrictions; a road trip might ask about vehicle capacity
+- Up to 10 questions per call, batched as one interruption
+
+`ask-user` is registered in the default registry (`mcp/registry.mjs`) and available everywhere the
+other tools are — plan-execute, open-ended, and workflows (via `executeWorkflow`).
+
+### agentDescription guidance
+
+The host's `agentDescription` in `host.config.mjs` tells the LLM to call `ask-user` before
+planning:
+
+```
+## MANDATORY: ASK BEFORE YOU PLAN
+Before doing any research, you MUST call the ask-user tool …
+Think about what is missing from the request and ask about it.
+Only ask what is actually unclear.
+```
+
+The instruction steers the model. Without it the model may skip asking entirely and plan from
+defaults.
+
+---
+
+## `askUser` in workflows
+
+`executeWorkflow` passes `askUser` through to the tool's `run()` function, so any workflow can
+pause and ask. The trip-planner workflow demonstrates this: its `run()` calls `askUser` with
+six questions (dates, travellers, budget, interests, transport, must-see/avoid) before launching
+the research pipeline, and feeds the answers into the compose prompt.
+
+A workflow tool that receives `askUser` can call it directly — the pause and resume mechanics
+are identical to the plan-execute path. The checkpoint saves the strategy (`workflow:trip-planner`),
+so the resumed run stays on the same workflow.
+
+If `askUser` is `undefined` (feature off, or the caller did not provide it), the workflow runs
+without asking — the same behaviour as before.
+
+---
+
 ## Seeing it work without Fleet
 
 The travel agent normally needs Fleet and a model. To see human input work
@@ -291,6 +377,32 @@ Both tools and the demo script are scaffolding: `mcp/human-input-tools.mjs` and
 `deploy/demo-scripts/`. Delete them when adopting the kit. Every other tool in
 the registry is read-only, which is why they exist — without something
 irreversible there is nothing for the guardrail to stop.
+
+### Seeing it work with Fleet
+
+With a real Fleet and LLM, start the host normally:
+
+```bash
+npm run host
+# → http://localhost:3000/chat
+```
+
+The LLM uses `ask-user` to compose questions dynamically. Try:
+
+| Say | What happens |
+|---|---|
+| `plan a detailed trip to Kerala` | LLM composes questions about dates, group size, budget, interests, transport |
+| `plan a 3-day shoestring trip to Goa for 2 people` | LLM asks fewer questions — dates and budget are already known |
+| `plan and save a trip to Paris` | `choose-destination` asks which Paris, then `confirm-itinerary` asks for approval |
+
+Human-input events are logged to the terminal:
+
+```
+[jobs] job job-abc123 paused — 5 question(s) asked by tool [text, text, pick_one_or_text, text, text], batchId=inp-xyz789
+[jobs] job job-abc123 input received — batchId=inp-xyz789, answeredBy=anonymous, fields=[q0, q1, q2, q3, q4]
+```
+
+---
 
 ## Azure Durable Functions
 
