@@ -306,10 +306,10 @@ A task goes in, a result comes out. Six parts inside the boundary make that happ
 | 1 | **Run Loop** | The core. Decides the next step and calls tools until done. Two strategies: **ReAct** (decide each turn) and **Plan-Execute** (plan upfront, replan on failure). | Shipped |
 | 2 | **Memory** | Three tiers: conversation context (prior chat turns within a session), run state (crash recovery), long-term (cross-session facts with FSRS-6 decay). Four LLM tools: remember, recall, forget, promote. | Shipped |
 | 3 | **Workflows** | Known sequences written as plain code and exposed as tools. If you already know the steps, don't make the agent figure them out. | Shipped |
-| 4 | **Tools** | Typed schemas, model-facing descriptions. Errors are returned, not thrown. 15 Python tools ship out of the box. | Shipped |
+| 4 | **Tools** | Typed schemas, model-facing descriptions. Errors are returned, not thrown. 12 Python tools ship out of the box. | Shipped |
 | 5 | **Budgets & Stops** | Iteration cap (25), cost ceiling ($5), token limit (500K), wall-clock timeout (10 min), explicit definition of done. | Shipped |
-| 6 | **Guardrails** | Per-tool allow/deny policies, reversibility classification, filesystem sandboxing, input validation, dry-run mode. | Shipped |
-| — | **Evals** | Sits outside the boundary — a harness that calls the whole box and grades what comes out. 20-50 real tasks with graded outcomes. | Planned |
+| 6 | **Guardrails** | Per-tool allow/deny policies, reversibility classification, filesystem sandboxing, input validation, dry-run mode. Human approval pauses the run and resumes it when answered ([human input](docs/human-input.md)). | Shipped |
+| — | **Evals** | Sits outside the boundary — a harness that calls the whole box and grades what comes out. Runner, 7 graders, task suites: `npm run eval`. | Shipped |
 
 ---
 
@@ -373,7 +373,8 @@ cd apra-agent-kit && npm install
 2. **Clone** your fork: `git clone https://github.com/<you>/apra-agent-kit.git`
 3. **Create a branch**: `git checkout -b feature/your-feature`
 4. **Make your changes** — follow the conventions in [docs/development.md](docs/development.md)
-5. **Run tests**: `npm test` (mock tests — no Fleet binary or tokens needed)
+5. **Run tests**: `npm test` (mock tests — no Fleet binary or tokens needed), then `npm run smoke`
+   (starts the agent with a scripted LLM and runs the black-box e2e suite against it — no token needed)
 6. **Push** to your fork: `git push origin feature/your-feature`
 7. **Open a PR** against `main`
 
@@ -391,17 +392,21 @@ See [docs/development.md](docs/development.md) for the full setup, testing guide
 
 ## Roadmap
 
-See the full **[Roadmap](docs/roadmap.md)** for what's shipped, in progress, and planned.
+See the full **[Roadmap](docs/roadmap.md)** for what's shipped and planned, and the
+**[wave roadmap](docs/plans/2026-11-03-roadmap-waves.md)** for the issue-by-issue order.
 
 **Recently shipped:**
+- Durable human input — approvals and questions pause a run, release the worker, and resume on answer
+- Checkpoints and resume — a crashed or paused run picks up where it stopped
+- Eval harness — runner, 7 graders and task suites (`npm run eval`)
+- Azure durable-entity storage, with Cosmos and MSSQL store options
+- One-command smoke test — `npm run smoke` runs the black-box e2e suite against a scripted agent
 - Three-tier memory system — conversation context, run state, long-term with FSRS-6 decay
 - Strategy auto-router — classifies tasks and routes to the right strategy automatically
-- `npm create` scaffolding CLI — scaffold a new agent project in one command
-- Agent-builder skill (`/agent-builder`) — interview → spec → plan → build
-- Trace IDs and kill switch — end-to-end correlation and emergency write disable
 
 **Next up:**
-- Eval harness: 20-50 real tasks with graded outcomes, runs on every prompt/model change
+- Wave 0: trustworthy testing — fix the masked e2e job ([#89](https://github.com/Apra-Labs/apra-agent-kit/issues/89)) and add `npm run verify`
+- Wave 1: safe to deploy — secrets redaction, prompt-injection scanning, approval safeguards, audit log
 
 ---
 
@@ -419,7 +424,7 @@ autonomously. Both share the same tools, worker pool, and guardrails.
 **Q: Can I use OpenAI or other providers instead of Claude?**
 Fleet supports registering members with different LLM providers. The kit's architecture
 doesn't lock you into Claude — though today the worker pool provisions Claude Code instances.
-Multi-provider support is on the roadmap.
+Multi-provider support is on the roadmap ([#81](https://github.com/Apra-Labs/apra-agent-kit/issues/81)).
 
 **Q: How much does a task cost?**
 Depends on the task complexity and strategy. Budget defaults cap at $5 per task, 500K tokens,
