@@ -2,7 +2,9 @@
 
 What's built, what's next, and what's on the horizon.
 
-Last updated: 2026-09-30
+Last updated: 2026-11-03
+
+The issue-by-issue plan, in order, lives in the [wave roadmap](plans/2026-11-03-roadmap-waves.md).
 
 ## Shipped
 
@@ -32,41 +34,34 @@ These are live in the kit today.
 | Scheduled workflows | Done | [scheduled-workflows-spec](specs/scheduled-workflows-spec.md) |
 | Docker VM + Azure Functions deployment modes | Done | [getting-started](getting-started.md) |
 | Fleet auth provisioning in Docker | Done | [deploy-azure](deploy-azure-functions.md) |
+| `npm create` published to npm | Done | Published as `@apralabs/create-agent-kit`. Install via `npm create @apralabs/agent-kit`. |
+| Memory: conversation context, run state, long-term facts (decay, dedup) | Done | [memory](memory.md) |
+| Eval harness (runner, 7 graders, suites, `npm run eval`) | Done | [eval-harness-spec](specs/eval-harness-spec.md) |
+| Durable human input (approvals and questions that pause and resume a run) | Done | [human-input](human-input.md) |
+| Checkpoints and resume after a crash or a pause | Done | [memory-human-input-integration-spec](specs/2026-09-29-memory-human-input-integration-spec.md) |
+| Dynamic `ask-user` tool, wired through workflows | Done | [human-input](human-input.md) |
+| Azure durable-entity storage, with Cosmos and MSSQL store options | Done | [azure-durable-entity-storage-spec](specs/2026-09-30-azure-durable-entity-storage-spec.md) |
+| Retention and expiry of job and question records | Done | [human-input](human-input.md#storage-and-retention) |
+| One-command smoke test (`npm run smoke`, `npm run smoke:live`) | Done | `scripts/smoke-test.mjs` |
 
-## In Progress
+## Next Up
 
-| Feature | Status | Notes |
-|---------|--------|-------|
-| `npm create` — npm registry publish | Done | Published as `@apralabs/create-agent-kit`. Install via `npm create @apralabs/agent-kit`. |
+Wave 0 and wave 1 of the [wave roadmap](plans/2026-11-03-roadmap-waves.md):
 
-## Next Up — Phase 3: Memory + Eval
+| Wave | Focus | Issues |
+|------|-------|--------|
+| 0 | Trustworthy testing: fix the masked e2e job, add `npm run verify` | [#89](https://github.com/Apra-Labs/apra-agent-kit/issues/89) |
+| 1 | Safe to deploy: secrets, prompt injection, approvals, audit | [#74](https://github.com/Apra-Labs/apra-agent-kit/issues/74), [#72](https://github.com/Apra-Labs/apra-agent-kit/issues/72), [#73](https://github.com/Apra-Labs/apra-agent-kit/issues/73), [#45](https://github.com/Apra-Labs/apra-agent-kit/issues/45), [#26](https://github.com/Apra-Labs/apra-agent-kit/issues/26), [#25](https://github.com/Apra-Labs/apra-agent-kit/issues/25) |
 
-Specced and approved, not yet implemented. See [phase3-memory-eval-spec](specs/phase3-memory-eval-spec.md).
-
-### Memory (three kinds)
-
-Conflating these is the most common agent design mistake:
-
-| Kind | What it is | Priority |
-|------|-----------|----------|
-| **Working context** | What's in the LLM window during a run. Needs a compaction plan or long runs degrade. | High — runs already suffer on complex tasks |
-| **Run state** | Checkpoint that lets a crash resume. Pair with idempotency keys. | High — critical for distributed workers |
-| **Long-term memory** | Facts carried across separate runs. | Low — most task agents don't need this early |
-
-### Eval harness
-
-The piece teams regret skipping. The agent is the thing under test, unchanged.
-
-- 20-50 real tasks with graded outcomes
-- Run on every prompt or model change
-- Compares results, never inspects internals
-- Ships in the kit — or nobody adds it later
+Still open from the old Phase 3 plan: compaction of the working context inside a single run ([#86](https://github.com/Apra-Labs/apra-agent-kit/issues/86)), and running evals on every prompt or model change.
 
 ## Planned
 
-Features identified from the vision and codebase gaps. Not yet specced.
+Features identified from the vision and codebase gaps. Not yet specced; each links to its issue.
 
 ### Connectors (LLM Providers)
+
+Tracked in [#81](https://github.com/Apra-Labs/apra-agent-kit/issues/81).
 
 The kit currently provisions Claude Code instances via Fleet. To support more providers:
 
@@ -91,15 +86,16 @@ Four doors, one room — none of them should live inside the agent:
 | Chat input (person types) | Done | Chat UI ships today |
 | Queue (another service sends) | Partial | Job queue exists; needs Redis Streams consumer group for production dispatch |
 | Schedule (cron fires) | Done | Config-driven cron in `host.config.mjs`. Each tick submits a named workflow through the jobs API (`queue` or `skip` overlap). In-process croner timers or Azure Timer Triggers; backend follows `JOBS_BACKEND`. See [scheduled-workflows](scheduled-workflows.md). |
-| MCP (another agent calls) | Done | `/mcp` endpoint ships today |
+| MCP (another agent calls) | Done | `/mcp` endpoint ships today, including `submit-task`, `job-status` and `job-input` |
+| Slack and Teams (a person in a chat app) | Planned | [#82](https://github.com/Apra-Labs/apra-agent-kit/issues/82) |
+| OpenAI-compatible API (existing OpenAI clients) | Planned | [#83](https://github.com/Apra-Labs/apra-agent-kit/issues/83) |
 
 ### Authentication
 
-The auth injection point exists (`mcp/auth.mjs`) and `getting-started.md` documents how to plug in a custom authenticator. Still needed:
+Authentication is the adopter's choice: inject an authenticator with `startHost({ authenticate })` (`mcp/auth.mjs` is the anonymous default, and `getting-started.md` shows how). Still needed:
 
-- A shipped middleware implementation (API key or OAuth bearer token validation)
-- Rate limiting per caller
-- Auth for the chat UI (currently always unauthenticated)
+- A startup warning when approvals run with the anonymous default ([#74](https://github.com/Apra-Labs/apra-agent-kit/issues/74))
+- Policies per user and role ([#22](https://github.com/Apra-Labs/apra-agent-kit/issues/22)) and rate limiting per tool ([#24](https://github.com/Apra-Labs/apra-agent-kit/issues/24))
 
 ### Task triage
 
@@ -107,7 +103,7 @@ A triage layer at the chat/input boundary should classify: question vs task vs t
 - "What is our leave policy?" → one model call, no agent needed
 - "Find the mismatched invoices" → many steps, several tools, agent needed
 
-The strategy auto-router classifies between workflows, open-ended, and plan-execute — but doesn't yet distinguish "no agent needed" questions from agent-worthy tasks.
+The strategy auto-router classifies between workflows, open-ended, and plan-execute — but doesn't yet distinguish "no agent needed" questions from agent-worthy tasks. Tracked in [#79](https://github.com/Apra-Labs/apra-agent-kit/issues/79).
 
 ### Observability
 
@@ -118,11 +114,15 @@ Trace IDs are shipped (end-to-end correlation from request through run loop). St
 - Latency breakdowns per tool call
 - Error rate monitoring
 
+Tracked in [#84](https://github.com/Apra-Labs/apra-agent-kit/issues/84).
+
 ### Safety and provenance
 
-Kill switch is shipped (disable all writes across a deployment without a redeploy). Still needed:
+Kill switch is shipped (disable all writes across a deployment without a redeploy), and `docs/CONTRACT.md` tells adopters to decide on provenance before their first write. Still needed:
 
-- **Provenance convention for agent-written data** — mark records created by the agent so they're distinguishable from human-created ones. Cannot be retrofitted after records are written.
+- Hide secrets wherever tool data is saved or logged ([#72](https://github.com/Apra-Labs/apra-agent-kit/issues/72))
+- Scan tool results and memory writes for prompt injection ([#73](https://github.com/Apra-Labs/apra-agent-kit/issues/73))
+- A per-run cap on irreversible calls, and recording who approved ([#45](https://github.com/Apra-Labs/apra-agent-kit/issues/45))
 
 ## Future / Exploration
 
@@ -131,8 +131,8 @@ These are longer-term ideas, not committed.
 | Idea | Notes |
 |------|-------|
 | Redis Streams dispatch | Production-grade consumer groups; workers claim messages, ack on completion, unacked work reclaimed on death |
-| Human-in-the-loop approval | For irreversible actions — the guardrails layer already classifies reversibility |
-| Agent-to-agent communication | One agent calling another agent's `/task` endpoint as a tool |
+| Agent-to-agent communication | Already possible over MCP (`submit-task`); a helper-agent `delegate` tool is [#88](https://github.com/Apra-Labs/apra-agent-kit/issues/88) |
 | Horizontal scaling patterns | Documentation and examples for multi-container deployments |
-| Plugin system | Third-party tool packages that register into the MCP catalog |
+| Plugin system | Third-party tool packages that register into the MCP catalog; sharing skills is [#87](https://github.com/Apra-Labs/apra-agent-kit/issues/87) |
+| Skills | Plain-English know-how the agent loads on demand ([#76](https://github.com/Apra-Labs/apra-agent-kit/issues/76), [#77](https://github.com/Apra-Labs/apra-agent-kit/issues/77)) |
 | API-only agents (no Fleet) | For tasks that are pure API calls with no filesystem — Fleet binding is vestigial for these |

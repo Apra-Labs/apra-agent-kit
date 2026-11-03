@@ -37,7 +37,7 @@ are rough: S is about a day, M a few days, L a week or more.
 | 1 | [#45](https://github.com/Apra-Labs/apra-agent-kit/issues/45) | Per-run write cap, record who approved | S | verify | Not started |
 | 1 | [#26](https://github.com/Apra-Labs/apra-agent-kit/issues/26) | Audit log of approvals and denials | S–M | #45, #72 | Not started |
 | 1 | [#25](https://github.com/Apra-Labs/apra-agent-kit/issues/25) | Tool output inspection: close or keep only deny | XS | #72, #73 | Not started |
-| 1 | [#75](https://github.com/Apra-Labs/apra-agent-kit/issues/75) | Update the roadmap doc | XS | rest of wave 1 | Not started |
+| 1 | [#75](https://github.com/Apra-Labs/apra-agent-kit/issues/75) | Update the roadmap doc | XS | none | In review |
 | 2 | [#80](https://github.com/Apra-Labs/apra-agent-kit/issues/80) | Cut oversized tool output | S | verify | Not started |
 | 2 | [#79](https://github.com/Apra-Labs/apra-agent-kit/issues/79) | Triage: answer simple questions directly | S | verify | Not started |
 | 2 | [#76](https://github.com/Apra-Labs/apra-agent-kit/issues/76) | Skills phase 1: the agent reads skills | S–M | verify | Not started |
